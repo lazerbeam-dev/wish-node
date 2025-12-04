@@ -1,0 +1,9 @@
+{
+  "id": "string (uuid-like) or keep existing id for upgrades",
+  "name": "string",
+  "legendariness": "1-100 how amazing are the achievements that justified the forging of this item",
+  "description": "short string",
+  "emoji": "the emoji that most closely resembles the item",
+  "emoji_accent": "an additional emoji to embellish the item with, flavor",
+  "tags": ["list of strings"]
+}

@@ -1,0 +1,11 @@
+{
+  "title": "string",
+  "phases": [
+    {
+      "title": "string",
+      "tasks": [
+        {"title":"string", "repeat":false}
+      ]
+    }
+  ]
+}

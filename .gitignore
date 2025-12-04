@@ -1,0 +1,148 @@
+# -------------------------
+# Global / system
+# -------------------------
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*~
+.idea/
+.vscode/
+*.iml
+
+# -------------------------
+# Python backend (server/)
+# -------------------------
+server/__pycache__/
+server/**/*.pyc
+server/.pytest_cache/
+server/.coverage*
+server/.mypy_cache/
+server/venv/
+server/.venv/
+server/.env               # local env files
+server/*.db
+server/*.sqlite3
+server/*.log
+
+# Ignore python egg / pipenv
+*.egg-info/
+pip-wheel-metadata/
+
+# -------------------------
+# Flutter / Dart (wishnode/)
+# -------------------------
+# Dart & Flutter caches / build
+wishnode/.dart_tool/
+wishnode/build/
+wishnode/.flutter-plugins
+wishnode/.flutter-plugins-dependencies
+wishnode/.metadata
+
+# Pub caches (local)
+.dart_tool/
+.packages
+
+# Generated iOS stuff (keep source but ignore generated/workspace files)
+wishnode/ios/Pods/
+wishnode/ios/Podfile.lock
+wishnode/ios/Flutter/Generated.xcconfig
+wishnode/ios/Flutter/*.xcconfig
+wishnode/ios/Flutter/ephemeral/
+wishnode/ios/Flutter/Flutter.framework/
+wishnode/ios/Runner.xcworkspace/
+wishnode/ios/Runner.xcodeproj/xcshareddata/xcschemes/  # optional: ignore schemes
+# ignore user-specific Xcode data
+wishnode/ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+wishnode/ios/Runner.xcodeproj/xcuserdata/
+
+# Xcode derived data / build products
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+
+# Android generated & local files
+wishnode/android/.gradle/
+wishnode/android/local.properties
+wishnode/android/app/*.keystore
+wishnode/android/app/*.jks
+wishnode/android/app/build/
+wishnode/android/build/
+wishnode/android/gradle-wrapper.jar
+
+# Flutter desktop generated runner folders (ignore all runner output)
+wishnode/windows/runner/
+wishnode/linux/runner/
+wishnode/macos/Runner/ # general runner helpers
+wishnode/windows/flutter/
+wishnode/macos/Flutter/
+wishnode/linux/flutter/
+
+# Specifically ignore any "runner" directories anywhere under wishnode
+# (this removes the platform runner folders you noticed)
+wishnode/**/runner/
+wishnode/**/Runner/
+
+# Windows exe / artifacts
+*.exe
+*.dll
+*.obj
+*.lib
+
+# macOS / iOS icons / caches
+*.xcassets/ # (if you want to ignore generated variants; keep assets you intentionally manage)
+
+# -------------------------
+# IDE / editor / OS
+# -------------------------
+# JetBrains
+.idea/
+*.iml
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# -------------------------
+# Optional: lockfiles & packages
+# -------------------------
+# If you want to commit pubspec.lock for reproducible app builds you can remove the next line.
+# Keeping it commented out because you earlier had pubspec.lock in the repo.
+# wishnode/pubspec.lock
+
+# -------------------------
+# Misc / safety
+# -------------------------
+*.zip
+*.tar.gz
+*.egg
+/wishnode/macos/Runner.xcodeproj/*.pbxproj
+/wishnode/macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/*.plist
+/wishnode/macos/Runner.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+/wishnode/macos/Runner.xcworkspace/*.xcworkspacedata
+/wishnode/macos/Runner.xcworkspace/xcshareddata/*.plist
+/wishnode/macos/RunnerTests/*.swift
+/wishnode/ios/Runner.xcodeproj/*.pbxproj
+/wishnode/ios/Runner.xcodeproj/project.xcworkspace/*.xcworkspacedata
+/wishnode/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/*.plist
+/wishnode/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/*.xcsettings
+/wishnode/ios/Runner.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+/wishnode/android/app/src/debug/*.xml
+/wishnode/android/app/src/main/*.xml
+/wishnode/android/app/src/main/kotlin/com/example/wishnode/*.kt
+/wishnode/android/app/src/main/res/drawable-v21/*.xml
+/wishnode/android/app/src/main/res/drawable/*.xml
+/wishnode/android/app/src/main/res/mipmap-hdpi/*.png
+/wishnode/android/app/src/main/res/mipmap-mdpi/*.png
+/wishnode/android/app/src/main/res/mipmap-xhdpi/*.png
+/wishnode/android/app/src/main/res/mipmap-xxhdpi/*.png
+/wishnode/android/app/src/main/res/mipmap-xxxhdpi/*.png
+/wishnode/android/app/src/main/res/values-night/*.xml
+/wishnode/android/app/src/main/res/values/*.xml
+/wishnode/android/app/src/profile/*.xml
+/wishnode/android/*.kts
+/wishnode/android/*.properties
+/wishnode/android/gradle/wrapper/*.properties
