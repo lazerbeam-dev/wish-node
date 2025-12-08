@@ -12,6 +12,9 @@ import 'models/wish_models.dart';
 // Add import for the API wrapper
 import 'wishnode_api.dart';
 
+// Add import for the popup widget
+import 'widgets/item_popup.dart';
+
 const String _kStoredUserIdKey = 'wishnode_anon_user_id';
 
 Future<void> main() async {
@@ -59,7 +62,8 @@ class _WishnodeHomeState extends State<WishnodeHome> {
   bool _loading = false;
   WishModel? _wish;
 
-  // visibility for the whole control panel (card + input)
+  // popup key
+  final GlobalKey<ItemPopupState> _itemPopupKey = GlobalKey<ItemPopupState>();
 
   // API client + user id
   late final WishnodeApi _apiClient;
@@ -89,31 +93,27 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     _setPanelVisible(false);
   }
 
-Future<void> _handleDeleteWish(String wishId) async {
-  try {
-    await _apiClient.deleteWish(wishId);
-    // refresh sidebar after successful delete
-    (_sidebarKey.currentState as dynamic)?.refresh();
-  } catch (e, st) {
-    print('[main] deleteWish failed: $e\n$st');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Failed to delete wish.'))
-    );
-    rethrow;
+  Future<void> _handleDeleteWish(String wishId) async {
+    try {
+      await _apiClient.deleteWish(wishId);
+      // refresh sidebar after successful delete
+      (_sidebarKey.currentState as dynamic)?.refresh();
+    } catch (e, st) {
+      print('[main] deleteWish failed: $e\n$st');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete wish.'))
+      );
+      rethrow;
+    }
   }
-}
+
   void _setPanelVisible(bool value) {
     setState(() {
       _panelVisible = value;
     });
     print("setpanelvisible_" + value.toString());
-    // if (value) {
-    //   // focus the input after the rebuild
-    //   WidgetsBinding.instance.addPostFrameCallback((_) {
-    //     _focusNode.requestFocus();
-    //   });
-    // }
   }
+
   // ---- user id / anon logic ----
 
   Future<String?> _getStoredUserId() async {
@@ -229,13 +229,35 @@ Future<void> _handleDeleteWish(String wishId) async {
   }
 
   Future<void> _handleCompleteTask(String wishId, String taskId) async {
-    try {
-      await _apiClient.completeTask(wishId, taskId);
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to mark task complete.')));
-    }
+    // Fire-and-forget style as before — but show item popup if returned.
+    _apiClient.completeTask(wishId, taskId).then((ret) {
+      try {
+        if (ret == null) return;
+        // Expecting ret to be a Map-like object with 'item'
+        final dynamic itemDataRaw = ret['item'];
+        if (itemDataRaw == null) return;
+
+        // Ensure we have a Map<String, dynamic>
+        final Map<String, dynamic> itemData = itemDataRaw is Map
+            ? Map<String, dynamic>.from(itemDataRaw as Map)
+            : {};
+
+        if (itemData.isNotEmpty && _itemPopupKey.currentState != null) {
+          _itemPopupKey.currentState!.show(itemData);
+        }
+
+        // Optionally print for debugging
+        print('[main] completeTask returned item: $itemData');
+      } catch (e, st) {
+        print('[main] error handling completeTask response: $e\n$st');
+      }
+    }).catchError((error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to mark task complete.')));
+      }
+    });
+    // function returns instantly (fire-and-forget)
   }
 
   Future<void> _handleUncompleteTask(String wishId, String taskId) async {
@@ -298,16 +320,16 @@ Future<void> _handleDeleteWish(String wishId) async {
                       ),
                     )
                   : WishNodeMap(
-                      key: ValueKey(_wish!.id), 
+                      key: ValueKey(_wish!.id),
                       wish: _wish!,
                       userId: _userId ?? '',
                       onCompleteTask: (wishId, taskId) =>
                           _handleCompleteTask(wishId, taskId),
-                      onRemoveTask: (wishId, taskId) => 
+                      onRemoveTask: (wishId, taskId) =>
                           _handleRemoveTask(wishId, taskId),
                       onEditTask: (wishId, taskId, newTitle, newRepeat) =>
                           _handleEditTask(wishId, taskId, newTitle, newRepeat),
-                      onAddTask: (wishId, phaseId, newTitle, newRepeat) => 
+                      onAddTask: (wishId, phaseId, newTitle, newRepeat) =>
                           _handleAddTask(wishId, phaseId, newTitle, newRepeat),
                       onUncompleteTask: (wishId, taskId) =>
                           _handleUncompleteTask(wishId, taskId),
@@ -346,39 +368,39 @@ Future<void> _handleDeleteWish(String wishId) async {
                     ),
                   )
                 : (_userId != null
-                      ? SidebarDrawer(
-                          key: _sidebarKey,
-                          userId: _userId!,
-                          initiallyOpen: true,
-                          onOpenWish: (WishModel parsed) {
-                            print("SET WISH:" + parsed.title);
-                            setState(() {
-                              _wish = parsed;
-                            });
-                          },
-                          onShowWishInput: _showPanel,
-                          onHideWishInput: _hidePanel,
-                          onDeleteWish: (wishId) => _handleDeleteWish(wishId),
-                        )
-                      : Container(
-                          color: Color(0xFF2A2A2F),
-                          padding: EdgeInsets.all(12),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Sidebar failed to initialize',
-                                style: TextStyle(color: Colors.redAccent),
-                                textAlign: TextAlign.center,
-                              ),
-                              SizedBox(height: 8),
-                              ElevatedButton(
-                                onPressed: _fetchOrCreateAnonUser,
-                                child: Text('Retry'),
-                              ),
-                            ],
-                          ),
-                        )),
+                    ? SidebarDrawer(
+                        key: _sidebarKey,
+                        userId: _userId!,
+                        initiallyOpen: true,
+                        onOpenWish: (WishModel parsed) {
+                          print("SET WISH:" + parsed.title);
+                          setState(() {
+                            _wish = parsed;
+                          });
+                        },
+                        onShowWishInput: _showPanel,
+                        onHideWishInput: _hidePanel,
+                        onDeleteWish: (wishId) => _handleDeleteWish(wishId),
+                      )
+                    : Container(
+                        color: Color(0xFF2A2A2F),
+                        padding: EdgeInsets.all(12),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Sidebar failed to initialize',
+                              style: TextStyle(color: Colors.redAccent),
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: _fetchOrCreateAnonUser,
+                              child: Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      )),
           ),
 
           // --- Centered control panel (card + inner section) ---
@@ -404,6 +426,10 @@ Future<void> _handleDeleteWish(String wishId) async {
               ),
             ),
           ),
+
+          // --- Item popup (bottom center) ---
+          // NOTE: ItemPopup contains AnimatedPositioned so it must be a direct child of this Stack.
+          ItemPopup(key: _itemPopupKey),
         ],
       ),
     );

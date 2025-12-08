@@ -125,14 +125,20 @@ class ItemOut {
   String id;
   String originWishId;
   String title;
-  String summary;
+  String emoji;
+  String emojiAccent;
+  String description;
+  int legendariness;
   DateTime? createdAt;
 
   ItemOut({
     required this.id,
     required this.originWishId,
     required this.title,
-    required this.summary,
+    required this.emoji,
+    required this.emojiAccent,
+    required this.description,
+    required this.legendariness,
     this.createdAt,
   });
 
@@ -141,7 +147,10 @@ class ItemOut {
       id: j['id'],
       originWishId: j['origin_wish_id'],
       title: j['title'],
-      summary: j['summary'] ?? '',
+      emoji: j['emoji'],
+      emojiAccent: j['emoji_accent'],
+      legendariness: j['legendariness'],
+      description: j['description'] ?? '',
       createdAt: j['created_at'] != null
           ? DateTime.tryParse(j['created_at'])
           : null,
@@ -360,6 +369,7 @@ class WishnodeApi {
     );
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final list = json.decode(r.body)['items'] as List;
+      print("ITEMS RAW: " + list.join(", "));
       return list.map((e) => ItemOut.fromJson(e)).toList();
     }
     _handleError(r);

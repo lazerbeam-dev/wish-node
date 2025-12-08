@@ -15,6 +15,7 @@ import json
 import traceback
 from uuid import uuid4
 from typing import Any, Dict
+import items
 class PlanRequest(BaseModel):
     # human text describing the wish (required)
     wish: str
@@ -213,7 +214,8 @@ def complete_task(
     updated = False
 
     mark_incomplete = bool(body.mark_incomplete) if body is not None else False
-
+    phase_title = ""
+    task_title = ""
     for p in phases:
         for t in p.get("tasks", []):
             if t.get("id") == task_id:
@@ -222,7 +224,7 @@ def complete_task(
                     t["completed"] = False
                     t.pop("completed_at", None)
                 else:
-                    # Mark complete and set completed_at
+                    # Mark complete and set completed_at on the task
                     t["completed"] = True
                     # use timezone aware ISO
                     t["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -230,6 +232,8 @@ def complete_task(
                     if t.get("repeat") == True:
                         t["repeated_amount"] = int(t.get("repeated_amount", 0)) + 1
                 updated = True
+                phase_title = p.get("title", "")
+                task_title = t.get("title", "")
                 break
         if updated:
             break
@@ -240,35 +244,53 @@ def complete_task(
     # Persist phases using your helper (returns reloaded wish)
     wish = _persist_wish_phases(db, wish, phases)
 
-    # Re-evaluate whether the whole wish is completed (same logic as before)
+    # Evaluate whether ALL tasks across all phases are completed
+    def _task_done(t):
+        # robust check for boolean-like values
+        val = t.get("completed", False)
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, (int, float)):
+            return bool(val)
+        if isinstance(val, str):
+            return val.lower() in ("true", "1", "yes", "y")
+        return False
+
     all_done = True
     for p in (wish.phases or []):
-        for t in p.get("tasks", []):
-            if not bool(t.get("completed")):
+        tasks = p.get("tasks") or []
+        if not isinstance(tasks, list):
+            all_done = False
+            break
+        for t in tasks:
+            if not _task_done(t):
                 all_done = False
                 break
         if not all_done:
             break
 
+    # Update wish status + completed_at based on all_done
     if all_done:
         wish.status = WishStatus.completed
+        # store as timezone-aware datetime object (DB DateTime column)
         wish.completed_at = datetime.now(timezone.utc)
-        db.add(wish)
-        # create item (existing behaviour)
-        item = Item(
-            id=str(uuid4()),
-            origin_wish_id=wish.id,
-            title=wish.title,
-            summary=f"Completed wish: {wish.title}",
-            skills=[],
-            assets=[],
-            buff_tags=[]
-        )
-        db.add(item)
-        db.commit()
-        return {"ok": True, "created_item_id": item.id, "toast": "The wish has been bound into an item. Your story just gained a new spell."}
+    else:
+        # clear completed_at when incomplete and set status back to in_progress
+        wish.status = WishStatus.in_progress
+        wish.completed_at = None
 
-    return {"ok": True, "toast": "Nice — one more rune etched."}
+    db.add(wish)
+    db.commit()
+    db.refresh(wish)
+
+    if not mark_incomplete:
+        # generate item (unchanged behavior)
+        wish_items = db.query(Item).filter(Item.origin_wish_id == wish_id).all()
+        item = items.create_item_from_ai(db, wish.owner_id, wish.id, phase_title, task_title, wish_items, wish.title, client)
+        return {"ok": True, "toast": "Nice — one more rune etched.", "item": item}
+    else:
+        return {"ok": True, "toast": "Nice — one more rune etched."}
+
 
 @app.post("/api/wishes/{wish_id}/phases/{phase_id}/tasks")
 def add_task(wish_id: str, phase_id: str, payload: TaskCreate, db: Session = Depends(get_db)):
@@ -316,7 +338,7 @@ def delete_wish(wish_id: str, db: Session = Depends(get_db)):
 @app.get("/api/vault")
 def get_vault(user_id: str, db: Session = Depends(get_db)):
     items = db.query(Item).join(Wish, Item.origin_wish_id == Wish.id).filter(Wish.owner_id == user_id).all()
-    return {"items": [ {"id":it.id, "origin_wish_id": it.origin_wish_id, "title": it.title, "summary": it.summary, "created_at": it.created_at} for it in items ]}
+    return {"items": [ {"id":it.id, "origin_wish_id": it.origin_wish_id, "title": it.title, "emoji": it.emoji, "legendariness": it.legendariness, "emoji_accent": it.emoji_accent, "description": it.description, "created_at": it.created_at} for it in items ]}
 
 @app.get("/api/users/{user_id}/should_nudge")
 def should_nudge(user_id: str, db: Session = Depends(get_db)):

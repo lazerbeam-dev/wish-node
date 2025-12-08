@@ -25,9 +25,10 @@ class WishCreate(BaseModel):
 class ItemOut(BaseModel):
     id: str
     origin_wish_id: str
+    emoji: str
+    emoji_accent: str
     title: str
-    summary: Optional[str]
-    skills: List[str] = []
-    assets: List[str] = []
-    buff_tags: List[str] = []
+    description: Optional[str]
+    legendariness: int
+    tags: List[str]
     created_at: datetime

@@ -5,7 +5,7 @@ import 'package:wishnode/main.dart';
 import 'package:wishnode/widgets/wishpath_model.dart';
 import '../wishnode_api.dart';
 import '../models/wish_models.dart';
-
+import 'vault.dart';
 class SidebarDrawer extends StatefulWidget {
   final bool initiallyOpen;
   final String userId; // required: anon or real user id
@@ -38,22 +38,40 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   bool _loading = false;
   String? _error;
 
-    // public helper for parents to request a refresh
+  // public helper for parents to request a refresh
   void refresh() => _fetchWishes();
-  @override
+   @override
   void initState() {
     super.initState();
     _open = widget.initiallyOpen;
     _client = WishnodeApi();
-    _fetchWishes();
+
+    // Only try to fetch if we have a non-empty userId.
+    // This avoids hitting the network during early app startup if main()
+    // hasn't provided a stored id yet.
+    if (widget.userId.isNotEmpty) {
+      _fetchWishes();
+    } else {
+      print('[SidebarDrawer] initState: userId empty, deferring _fetchWishes');
+    }
   }
 
-  @override
+    @override
   void didUpdateWidget(covariant SidebarDrawer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) {
       _client = WishnodeApi();
-      _fetchWishes();
+      // Only fetch if new userId is non-empty
+      if (widget.userId.isNotEmpty) {
+        _fetchWishes();
+      } else {
+        print('[SidebarDrawer] didUpdateWidget: new userId is empty, skipping _fetchWishes');
+        setState(() {
+          _wishes = [];
+          _error = null;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -144,6 +162,52 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
     }
   }
 
+  Future<void> _showVault() async {
+  setState(() {
+    _loading = true;
+    _error = null;
+  });
+
+  try {
+    final List<ItemOut> itemsOut = await _client.getVault(widget.userId);
+
+    // Convert to List<Map<String, dynamic>> expected by Vault()
+    
+    final vaultItems = itemsOut.map((it) => {
+      'id': it.id,
+      'origin_wish_id': it.originWishId,
+      'name': it.title,
+      'description': it.description,
+      'created_at': it.createdAt?.toIso8601String(),
+      'legendariness' : it.legendariness,
+      'emoji': it.emoji,
+      'emoji_accent': it.emojiAccent
+    }).toList();
+
+    for (final l in vaultItems){
+      print(l['name']);
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Vault(items: vaultItems),
+        fullscreenDialog: true,
+      ),
+    );
+  } catch (e, st) {
+    print('[SidebarDrawer] _showVault error: $e\n$st');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sm = ScaffoldMessenger.maybeOf(context);
+      sm?.showSnackBar(SnackBar(content: Text('Failed to load vault: $e')));
+    });
+  } finally {
+    if (mounted) {
+      setState(() => _loading = false);
+    }
+  }
+}
+
+
   @override
   Widget build(BuildContext context) {
     const fullWidth = 260.0;
@@ -168,138 +232,190 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
             opacity: _open ? 1.0 : 0.0,
             child: IgnorePointer(
               ignoring: !_open,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'WISHNODE',
-                      style: TextStyle(
-                        color: Color(0xFFBDFFD8),
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 18),
-                    Text(
-                      'CURRENT GOALS',
-                      style: TextStyle(color: Color(0xFF8790A8), fontSize: 12),
-                    ),
-                    SizedBox(height: 8),
-
-                    if (_loading)
-                      Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            SizedBox(width: 12),
-                            Text('Loading...', style: TextStyle(color: Color(0xFFD6D8E1))),
-                          ],
-                        ),
-                      )
-                    else if (_error != null)
-                      Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('Error loading goals: $_error',
-                            style: TextStyle(color: Colors.redAccent, fontSize: 13)),
-                      )
-                    else
-                      ConstrainedBox(
-                        constraints: BoxConstraints(maxHeight: 220),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            children: inProgress.isNotEmpty
-                                ? inProgress
-                                    .map((w) => GestureDetector(
-                                          onTap: () => _openWishById(w.id, w.title),
-                                          child: _goalTile(
-                                          icon: Icons.brightness_1,
-                                          label: w.title,
-                                          active: true,
-                                          onTap: () => _openWishById(w.id, w.title),
-                                          onDelete: () => widget.onDeleteWish(w.id),
-                                        ),
-                                        ))
-                                    .toList()
-                                : [
-                                    Padding(
-                                      padding: EdgeInsets.symmetric(vertical: 8),
-                                      child: Text('No active goals', style: TextStyle(color: Color(0xFF8790A8))),
-                                    )
-                                  ],
-                          ),
-                        ),
-                      ),
-
-                    Spacer(),
-
-                    Text('ACHIEVED GOALS', style: TextStyle(color: Color(0xFF8790A8), fontSize: 12)),
-                    SizedBox(height: 8),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: 160),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: completed.isNotEmpty
-                              ? completed
-                                  .map((w) => GestureDetector(
-                                        onTap: () => _openWishById(w.id, w.title),
-                                        child: _goalTile(
-                                        icon: Icons.brightness_1,
-                                        label: w.title,
-                                        active: true,
-                                        onTap: () => _openWishById(w.id, w.title),
-                                        onDelete: () => widget.onDeleteWish(w.id),
-                                      ),
-                                      ))
-                                  .toList()
-                              : [
-                                  Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 8),
-                                    child: Text('No achieved goals yet', style: TextStyle(color: Color(0xFF8790A8))),
-                                  )
-                                ],
-                        ),
-                      ),
-                    ),
-
-                    SizedBox(height: 18),
-
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Color(0xFFBDFFD8),
-                          borderRadius: BorderRadius.circular(26),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black26,
-                              blurRadius: 6,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: TextButton(
-                          onPressed: widget.onShowWishInput,
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                            child: Text('MAKE A WISH',
-                                style: TextStyle(
-                                  color: Color(0xFF282A2F),
-                                  fontWeight: FontWeight.bold,
-                                )),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+              
+// WITH THIS:
+child: LayoutBuilder(
+  builder: (context, constraints) {
+    return SingleChildScrollView(
+      physics: BouncingScrollPhysics(),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 28,
+        // Respect system/UI insets to avoid bottom overflow:
+        bottom: 28 + MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: IntrinsicHeight(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // --- keep all the same children you already had ---
+              Text(
+                'WISHNODE',
+                style: TextStyle(
+                  color: Color(0xFFBDFFD8),
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
+              SizedBox(height: 18),
+              Text(
+                'CURRENT GOALS',
+                style: TextStyle(color: Color(0xFF8790A8), fontSize: 12),
+              ),
+              SizedBox(height: 8),
+
+              if (_loading)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Loading...', style: TextStyle(color: Color(0xFFD6D8E1))),
+                    ],
+                  ),
+                )
+              else if (_error != null)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text('Error loading goals: $_error',
+                      style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: 220),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: inProgress.isNotEmpty
+                          ? inProgress
+                              .map((w) => GestureDetector(
+                                    onTap: () => _openWishById(w.id, w.title),
+                                    child: _goalTile(
+                                      icon: Icons.brightness_1,
+                                      label: w.title,
+                                      active: true,
+                                      onTap: () => _openWishById(w.id, w.title),
+                                      onDelete: () => widget.onDeleteWish(w.id),
+                                    ),
+                                  ))
+                              .toList()
+                          : [
+                              Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text('No active goals', style: TextStyle(color: Color(0xFF8790A8))),
+                              )
+                            ],
+                    ),
+                  ),
+                ),
+
+              SizedBox(height: 12),
+
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Color(0xFF6EA8FF),
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 6,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: TextButton(
+                    onPressed: _showVault,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      child: Text('VAULT',
+                          style: TextStyle(
+                            color: Color(0xFF0F1724),
+                            fontWeight: FontWeight.bold,
+                          )),
+                    ),
+                  ),
+                ),
+              ),
+
+              SizedBox(height: 16),
+
+              Text('ACHIEVED GOALS', style: TextStyle(color: Color(0xFF8790A8), fontSize: 12)),
+              SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: 160),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: completed.isNotEmpty
+                        ? completed
+                            .map((w) => GestureDetector(
+                                  onTap: () => _openWishById(w.id, w.title),
+                                  child: _goalTile(
+                                    icon: Icons.brightness_1,
+                                    label: w.title,
+                                    active: true,
+                                    onTap: () => _openWishById(w.id, w.title),
+                                    onDelete: () => widget.onDeleteWish(w.id),
+                                  ),
+                                ))
+                            .toList()
+                        : [
+                            Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text('No achieved goals yet', style: TextStyle(color: Color(0xFF8790A8))),
+                            )
+                          ],
+                  ),
+                ),
+              ),
+
+              SizedBox(height: 18),
+
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Color(0xFFBDFFD8),
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 6,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: TextButton(
+                    onPressed: widget.onShowWishInput,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      child: Text('MAKE A WISH',
+                          style: TextStyle(
+                            color: Color(0xFF282A2F),
+                            fontWeight: FontWeight.bold,
+                          )),
+                    ),
+                  ),
+                ),
+              ),
+
+              // This pushes content to the top when there is extra space.
+              Expanded(child: SizedBox.shrink()),
+            ],
+          ),
+        ),
+      ),
+    );
+  },
+),
             ),
           ),
 
@@ -330,19 +446,6 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
               ),
             ),
           ),
-
-          if (!_open)
-            Positioned.fill(
-              child: Center(
-                child: RotatedBox(
-                  quarterTurns: 3,
-                  child: Text(
-                    'WISHNODE',
-                    style: TextStyle(color: Color(0xFF8790A8), fontSize: 12, letterSpacing: 1),
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

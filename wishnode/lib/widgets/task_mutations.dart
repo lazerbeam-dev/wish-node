@@ -1,0 +1,72 @@
+import 'package:flutter/material.dart';
+import 'package:wishnode/widgets/task_edit_sheet.dart';
+import '../models/wish_models.dart';
+
+typedef LocalCreateCallback = void Function(TaskModel t);
+typedef LocalRollbackCallback = void Function(TaskModel t);
+
+class TaskMutations {
+	/// Adds a task optimistically. Caller passes callbacks to perform local insertion and rollback.
+	/// - context: required for showTaskAddSheet
+	/// - phase: target phase to mutate locally
+	/// - onCreateLocal: called once with the created TaskModel inside a setState (caller responsibility)
+	/// - onRollbackLocal: called if persistence fails
+	/// - onPersist: optional persistence callback from parent (wishNodeMap.widget.onAddTask). If null, no network call attempted.
+	/// Returns the created TaskModel (or null if cancelled).
+	static Future<TaskModel?> addTaskToPhase({
+		required BuildContext context,
+		required PhaseModel phase,
+		required String wishId,
+		required LocalCreateCallback onCreateLocal,
+		required LocalRollbackCallback onRollbackLocal,
+		Future<void> Function(String wishId, String phaseId, String newTitle, bool newRepeat)? onPersist,
+	}) async {
+		final res = await showTaskAddSheet(context);
+		if (res == null) return null;
+		final title = (res['title'] ?? '').toString();
+		final repeat = res['repeat'] == true;
+
+		final newTask = TaskModel(id: UniqueKey().toString(), text: title, repeat: repeat, completed: false);
+
+		// caller should perform local insert (inside setState)
+		onCreateLocal(newTask);
+
+		// persist if requested
+		if (onPersist != null) {
+			try {
+				await onPersist(wishId, phase.id, title, repeat);
+			} catch (e) {
+				// rollback local change
+				onRollbackLocal(newTask);
+				ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add task')));
+				print('onAddTask failed: $e');
+				return null;
+			}
+		}
+
+		return newTask;
+	}
+
+	/// Remove task: caller performs the local removal in onLocalRemove, and optionally provide onPersistRemove
+	static Future<void> removeTaskConfirmed({
+		required WishModel wish,
+		required String taskId,
+		required VoidCallback onLocalRemove,
+		required VoidCallback onRecalcPhase,
+		Future<void> Function(String wishId, String taskId)? onPersistRemove,
+	}) async {
+		// local remove
+		onLocalRemove();
+		onRecalcPhase();
+
+		// try persistence if provided, but don't block UI if it fails
+		if (onPersistRemove != null) {
+			try {
+				await onPersistRemove(wish.id, taskId);
+			} catch (e) {
+				// best-effort: log and continue
+				print('onRemoveTask callback failed: $e');
+			}
+		}
+	}
+}

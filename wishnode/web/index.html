@@ -35,4 +35,19 @@
 <body>
   <script src="flutter_bootstrap.js" async></script>
 </body>
+<style>
+  /* prevents back/forward navigation from swipe/overscroll on Chrome/Edge/Firefox */
+  html, body {
+    overscroll-behavior-x: none;
+    overscroll-behavior-y: none;
+    overscroll-behavior: none;
+    touch-action: pan-y pan-x;
+  }
+
+  /* if you only want to disable horizontal history swipes and keep vertical behavior:
+  html, body {
+    overscroll-behavior-x: none;
+  }
+  */
+</style>
 </html>
