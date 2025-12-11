@@ -924,3 +924,6 @@ def edit_task(wish_id: str, task_id: str, payload: TaskEdit, db: Session = Depen
 def whoami(current_user: User = Depends(get_current_user)):
     return {"user_id": current_user.id}
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
