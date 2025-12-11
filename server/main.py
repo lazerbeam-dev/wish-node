@@ -9,8 +9,10 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv          
 from openai import OpenAI  
 from typing import Optional
+from fastapi import Header, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from jwt_auth import create_token_for_user, set_auth_cookie, make_auth_dependencies, user_from_token
 import json
 import traceback
 from uuid import uuid4
@@ -39,55 +41,91 @@ class TaskCreate(BaseModel):
 
 class CompleteTaskBody(BaseModel):
     mark_incomplete: Optional[bool] = False
-import ai
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
-import schemas
+import sys
+import ai
+import logging
+from openai import OpenAI
 
-# Load .env immediately
-load_dotenv()                           
+# ---------- OpenAI client (safe init) ----------
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")  # optional
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+FREE_ACTIVE_WISH_LIMIT = 3
 
-# OpenAI client
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")        
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")  
-MODEL = "gpt-4o-mini"    
-client = OpenAI(                                   
+if not OPENAI_API_KEY:
+    logging.warning("OPENAI_API_KEY not set. OpenAI calls will fail until provided.")
+
+client = OpenAI(
     api_key=OPENAI_API_KEY,
-    base_url=OPENAI_BASE_URL
+    base_url=OPENAI_BASE_URL or None
 )
 
-origins = [
-    "http://localhost:3000",   # common web dev port
-    "http://localhost:8000",
-    "http://127.0.0.1:5500",
-    "http://localhost:8080",
-    "http://localhost",        # optional
-    "*"                        # for quick dev, allow all origins (not recommended for prod)
-]
+# ---------- Database (Postgres-only: no SQLite fallback) ----------
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is required and must point to Postgres. Set it to e.g. postgresql+psycopg2://user:pass@host:5432/dbname")
 
-# Database
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
-Base.metadata.create_all(bind=engine)
+# Ensure postgres scheme (basic guard)
+if not (DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgresql+psycopg2://")):
+    # allow "postgres://" legacy, but prefer explicit psycopg2 URL
+    logging.warning("DATABASE_URL does not look like a Postgres URL. Continuing, but ensure it's correct.")
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+# Create engine with Postgres-friendly options; no sqlite connect_args
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
+
+# Explicit session configuration
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+
+# NOTE: Do NOT call Base.metadata.create_all(...) here in production.
+# Use Alembic migrations to manage schema. If you need a dev-only quick-create,
+# call Base.metadata.create_all(bind=engine) conditionally in a separate script.
+# e.g.:
+# if os.getenv("ENV", "development") != "production":
+#     from models import Base
+#     Base.metadata.create_all(bind=engine)
+
+# ---------- FastAPI app + CORS (use ALLOWED_ORIGINS env, avoid "*" in prod) ----------
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+# Build allowed origins from ALLOWED_ORIGINS env var (comma-separated)
+_allowed = os.getenv("ALLOWED_ORIGINS", "http://localhost:3333").split(",")
+origins = [o.strip() for o in _allowed if o.strip()]
+
+# If origins includes wildcard explicitly, limit to development only
+if "*" in origins and os.getenv("ENV", "development") == "production":
+    raise RuntimeError("ALLOWED_ORIGINS must not contain '*' in production. Set ALLOWED_ORIGINS to a comma-separated whitelist.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,        # use ['*'] for quick dev; restrict in prod
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],          # allow OPTIONS, POST, GET, etc.
-    allow_headers=["*"],          # allow Content-Type, Authorization, etc.
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-FREE_ACTIVE_WISH_LIMIT = 3
+# ---------- DB dependency ----------
+from sqlalchemy.orm import Session
 
 def get_db():
-    db = SessionLocal()
+    db: Session = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+auth_deps = make_auth_dependencies(get_db)
+get_current_user = auth_deps["get_current_user"]
+get_current_user_optional = auth_deps["get_current_user_optional"]
 
 def active_wish_count(db: Session, user_id: str):
     return db.query(Wish).filter(
@@ -96,15 +134,31 @@ def active_wish_count(db: Session, user_id: str):
         Wish.deleted == False
     ).count()
 
+# in your main server file (where create_anon currently lives)
+ # add these imports
+
 @app.post("/api/anon")
 def create_anon(response: Response, db: Session = Depends(get_db)):
     anon_id = str(uuid4())
     user = User(id=anon_id, tier=Tier.anon)
     db.add(user)
     db.commit()
-    # optional cookie for convenience in browser clients
-    response.set_cookie("wishnode_anon_id", anon_id, httponly=True, max_age=60*60*24*365)
-    return {"anon_user_id": anon_id}
+
+    # create token for this anon user
+    try:
+        token = create_token_for_user(anon_id)
+    except Exception as e:
+        print("create_token_for_user error:", e)
+        token = ""
+
+    # set cookie for convenience (optional)
+    if token:
+        set_auth_cookie(response, token)
+
+    # return both anon id and token so clients can use whichever they prefer
+    return {"anon_user_id": anon_id, "token": token}
+
+
 
 @app.post("/api/users/claim")
 def claim_user(anon_user_id: str, email: str, password_plain: str, db: Session = Depends(get_db)):
@@ -161,10 +215,28 @@ def claim_user(anon_user_id: str, email: str, password_plain: str, db: Session =
     return {"ok": True, "user_id": new_id}
 
 
-@app.get("/api/wishes")
-def list_active_wishes(user_id: str, db: Session = Depends(get_db)):
-    wishes = db.query(Wish).filter(Wish.owner_id == user_id, Wish.status == WishStatus.in_progress).all()
-    return {"wishes": [ {"id":w.id, "title":w.title, "phases": w.phases, "created_at": w.created_at} for w in wishes ]}
+# @app.get("/api/wishes")
+# def list_active_wishes(
+#     current_user: User = Depends(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     user_id = current_user.id
+#     wishes = db.query(Wish).filter(
+#         Wish.owner_id == user_id,
+#         Wish.status == WishStatus.in_progress
+#     ).all()
+
+#     return {
+#         "wishes": [
+#             {
+#                 "id": w.id,
+#                 "title": w.title,
+#                 "phases": w.phases,
+#                 "created_at": w.created_at
+#             }
+#             for w in wishes
+#         ]
+#     }
 
 @app.get("/api/wishes/{wish_id}")
 def get_wish(wish_id: str, db: Session = Depends(get_db)):
@@ -191,24 +263,25 @@ def _persist_wish_phases(db: Session, wish: Wish, phases):
     # return the freshly loaded Wish
     return db.query(Wish).filter(Wish.id == wish.id).first()
 
+# TOKEN-only complete task: authenticated user must own the wish
 @app.post("/api/wishes/{wish_id}/tasks/{task_id}/complete")
 def complete_task(
     wish_id: str,
     task_id: str,
     body: CompleteTaskBody = Body(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Mark a task complete or incomplete.
-    - If body.mark_incomplete == True => set completed=false, clear completed_at.
-      We intentionally DO NOT decrement repeated_amount on un-complete (keeps history).
-    - If marking complete => set completed=true, set completed_at to now (UTC ISO),
-      and if task.repeat == True increment repeated_amount (creating it if missing).
-    Returns same shape as before (ok/toast or created_item_id).
+    Mark a task complete/incomplete for a wish owned by the authenticated user.
     """
+    # ensure wish exists and belongs to current user
     wish = db.query(Wish).filter(Wish.id == wish_id).first()
     if not wish:
         raise HTTPException(status_code=404, detail="Wish not found")
+
+    if str(wish.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not allowed to modify this wish")
 
     phases = wish.phases or []
     updated = False
@@ -220,15 +293,11 @@ def complete_task(
         for t in p.get("tasks", []):
             if t.get("id") == task_id:
                 if mark_incomplete:
-                    # Mark task as incomplete (do not touch repeated_amount)
                     t["completed"] = False
                     t.pop("completed_at", None)
                 else:
-                    # Mark complete and set completed_at on the task
                     t["completed"] = True
-                    # use timezone aware ISO
                     t["completed_at"] = datetime.now(timezone.utc).isoformat()
-                    # If this is a repeating task, increment repeated_amount
                     if t.get("repeat") == True:
                         t["repeated_amount"] = int(t.get("repeated_amount", 0)) + 1
                 updated = True
@@ -241,12 +310,11 @@ def complete_task(
     if not updated:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Persist phases using your helper (returns reloaded wish)
+    # persist phases and reload wish
     wish = _persist_wish_phases(db, wish, phases)
 
     # Evaluate whether ALL tasks across all phases are completed
     def _task_done(t):
-        # robust check for boolean-like values
         val = t.get("completed", False)
         if isinstance(val, bool):
             return val
@@ -272,10 +340,8 @@ def complete_task(
     # Update wish status + completed_at based on all_done
     if all_done:
         wish.status = WishStatus.completed
-        # store as timezone-aware datetime object (DB DateTime column)
         wish.completed_at = datetime.now(timezone.utc)
     else:
-        # clear completed_at when incomplete and set status back to in_progress
         wish.status = WishStatus.in_progress
         wish.completed_at = None
 
@@ -290,6 +356,7 @@ def complete_task(
         return {"ok": True, "toast": "Nice — one more rune etched.", "item": item}
     else:
         return {"ok": True, "toast": "Nice — one more rune etched."}
+
 
 
 @app.post("/api/wishes/{wish_id}/phases/{phase_id}/tasks")
@@ -335,10 +402,34 @@ def delete_wish(wish_id: str, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
+# TOKEN-only vault: returns items for the authenticated user
 @app.get("/api/vault")
-def get_vault(user_id: str, db: Session = Depends(get_db)):
-    items = db.query(Item).join(Wish, Item.origin_wish_id == Wish.id).filter(Wish.owner_id == user_id).all()
-    return {"items": [ {"id":it.id, "origin_wish_id": it.origin_wish_id, "title": it.title, "emoji": it.emoji, "legendariness": it.legendariness, "emoji_accent": it.emoji_accent, "description": it.description, "created_at": it.created_at} for it in items ]}
+def get_vault(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Token-only endpoint. Returns items whose origin wish belongs to the authenticated user.
+    """
+    user_id = current_user.id
+    # fetch items whose origin wish belongs to this user
+    items_q = db.query(Item).join(Wish, Item.origin_wish_id == Wish.id).filter(Wish.owner_id == user_id).all()
+
+    return {
+        "items": [
+            {
+                "id": it.id,
+                "origin_wish_id": it.origin_wish_id,
+                "title": it.title,
+                "emoji": it.emoji,
+                "legendariness": it.legendariness,
+                "emoji_accent": it.emoji_accent,
+                "description": it.description,
+                "created_at": it.created_at,
+            }
+            for it in items_q
+        ]
+    }
 
 @app.get("/api/users/{user_id}/should_nudge")
 def should_nudge(user_id: str, db: Session = Depends(get_db)):
@@ -484,13 +575,69 @@ def _normalize_phase(raw: Any) -> Dict:
     for t in raw_tasks:
         tasks.append(_normalize_task(t))
     return {"title": str(title), "tasks": tasks}
-
 @app.get("/api/users/{user_id}/wishes")
-def list_user_wishes(user_id: str, db: Session = Depends(get_db)):
+def list_user_wishes(
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
     """
-    Return all wishes for a user with minimal fields for UI lists:
-      [{ "id": "...", "title": "...", "status": "...", "deleted": False }, ...]
+    Return all wishes for a user with minimal fields for UI lists.
+
+    Behavior:
+      * If Authorization: Bearer <token> header is provided, we attempt to resolve
+        the token to a User via `jwt_auth.user_from_token(db, token)` (or
+        `jwt_auth.get_user_from_token(db, token)` if present).
+        If token is valid, we ignore the path user_id and use the token's user.
+      * Otherwise fall back to the path `user_id` (legacy).
     """
+
+    # Try to resolve token -> user (if header present).
+    if authorization:
+        # typical header: "Bearer <token>"
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+            try:
+                # Be permissive about the function name exported by jwt_auth.
+                import jwt_auth
+
+                user = None
+                # prefer user_from_token(db, token)
+                if hasattr(jwt_auth, "user_from_token") and callable(jwt_auth.user_from_token):
+                    user = jwt_auth.user_from_token(db, token)
+                # fallback to get_user_from_token(db, token)
+                elif hasattr(jwt_auth, "get_user_from_token") and callable(jwt_auth.get_user_from_token):
+                    user = jwt_auth.get_user_from_token(db, token)
+                # fallback to decode_token -> expecting payload['sub'] or ['user_id']
+                elif hasattr(jwt_auth, "decode_token") and callable(jwt_auth.decode_token):
+                    payload = jwt_auth.decode_token(token)
+                    # payload may contain 'sub' or 'user_id'
+                    token_user_id = payload.get("sub") or payload.get("user_id")
+                    if token_user_id:
+                        user = db.query(User).filter(User.id == str(token_user_id)).first()
+                else:
+                    # no helper found — log and continue to fallback
+                    print("jwt_auth module present but no user_from_token/get_user_from_token/decode_token found.")
+                    user = None
+
+                if user is None:
+                    # token was invalid or did not map to a user
+                    raise HTTPException(status_code=401, detail="Invalid or expired authentication token.")
+                # token is valid — override path param with authenticated user's id
+                user_id = user.id
+            except HTTPException:
+                raise
+            except Exception as e:
+                # Unexpected error while validating token -> log and return 401 to be safe
+                print("Error while resolving token to user:", str(e))
+                raise HTTPException(status_code=401, detail="Invalid authentication token.")
+        else:
+            # Malformed Authorization header
+            raise HTTPException(status_code=401, detail="Malformed Authorization header.")
+
+    # At this point we have a user_id (either from token or the path param)
+    # Validate the user actually exists
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -519,181 +666,176 @@ def list_user_wishes(user_id: str, db: Session = Depends(get_db)):
         ]
     }
 
+# @app.get("/api/users/{user_id}/wishes")
+# def list_user_wishes(user_id: str, db: Session = Depends(get_db)):
+#     """
+#     Return all wishes for a user with minimal fields for UI lists:
+#       [{ "id": "...", "title": "...", "status": "...", "deleted": False }, ...]
+#     """
+#     user = db.query(User).filter(User.id == user_id).first()
+#     if not user:
+#         raise HTTPException(status_code=404, detail="User not found")
+
+#     wishes = db.query(Wish).filter(Wish.owner_id == user_id).all()
+
+#     def _status_to_str(s):
+#         # Handle SQLAlchemy Enum-like objects or plain strings
+#         if s is None:
+#             return "unknown"
+#         if hasattr(s, "name"):
+#             return s.name
+#         if hasattr(s, "value"):
+#             return str(s.value)
+#         return str(s)
+
+#     return {
+#         "wishes": [
+#             {
+#                 "id": w.id,
+#                 "title": w.title,
+#                 "status": _status_to_str(w.status),
+#                 "deleted": bool(getattr(w, "deleted", False))
+#             }
+#             for w in wishes
+#         ]
+#     }
+
 @app.post("/api/wishes/plan")
-def api_get_plan(req: PlanRequest, db: Session = Depends(get_db)):
-    """
-    Generate a plan from human `req.wish` text, normalize it to the expected schema,
-    and SAVE the resulting phases into a Wish row. Returns canonical saved wish + owner_id.
-    Expected AI output shape:
-      {
-        "title": "string",
-        "phases": [
-          {
-            "title": "string",
-            "tasks": [{"title":"string", "repeat":false}]
-          }
-        ]
-      }
+def api_get_plan(
+    req: PlanRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),   # <- token required, 401 if missing/invalid
+):
+    # owner is always the authenticated user
+    owner_id = current_user.id
 
-    NOTE: owner_id is REQUIRED for predictability. The client must call /api/anon
-    once and persist the anon id; plans cannot be created without that owner id.
-    """
-    try:
-        # Enforce owner_id presence for predictability
-        if not req.owner_id:
-            raise HTTPException(
-                status_code=400,
-                detail="owner_id is required. Call /api/anon to obtain one and persist it on the client before requesting a plan."
-            )
-
-        # Fetch existing user; do NOT auto-create anon users here
-        user = db.query(User).filter(User.id == req.owner_id).first()
-        if not user:
-            raise HTTPException(
-                status_code=404,
-                detail="owner_id not found. Call /api/anon to create an anonymous user first."
-            )
-
+    # Now you can drop any checks around req.owner_id; insist on token.
+    # Fetch existing user (should always exist because token validated it)
+    user = db.query(User).filter(User.id == owner_id).first()
+    if not user:
+        # token was valid but user row missing — treat as server error
+        raise HTTPException(status_code=500, detail="Authenticated user record not found")
         # 1) Call AI
-        out = ai.get_plan_from_chatgpt(req.wish, client, model=MODEL)
+    out = ai.get_plan_from_chatgpt(req.wish, client, model=MODEL)
 
-        # Defensive JSON parsing if AI returns a JSON string
-        if isinstance(out, str):
-            try:
-                out = json.loads(out)
-            except Exception:
-                # keep raw string -> below validation will handle heuristics
-                pass
-
-        if not isinstance(out, dict):
-            # final attempt: if out is something else, raise helpful error
-            raise RuntimeError("AI returned unexpected top-level type (expected dict)")
-
-        # 2) Validate & normalize top level fields
-        ai_title = out.get("title")
-
-        raw_phases = out.get("phases")
-        if raw_phases is None:
-            # maybe the model placed steps/plan under other keys — try fallbacks
-            for fallback in ("plan", "steps", "outline", "result"):
-                if fallback in out:
-                    candidate = out[fallback]
-
-                    # If candidate is a dict that itself contains "phases" (the common "plan": {...} case),
-                    # pull the inner phases list out. If candidate is already a list, use it directly.
-                    if isinstance(candidate, dict) and "phases" in candidate and isinstance(candidate["phases"], (list, tuple)):
-                        raw_phases = candidate["phases"]
-                    elif isinstance(candidate, (list, tuple)):
-                        raw_phases = candidate
-                    else:
-                        # otherwise fall back to the candidate itself (later normalization will try to coerce)
-                        raw_phases = candidate
-                    break
-
-        # If phases is a JSON string, try parse
-        if isinstance(raw_phases, str):
-            try:
-                raw_phases = json.loads(raw_phases)
-            except Exception:
-                # keep the string — normalization will attempt to split by lines
-                pass
-
-        if raw_phases is None:
-            raise RuntimeError("AI returned no phases")
-
-        # Now normalize: accept dict (wrap), list, or string forms
-        normalized_phases = []
-        if isinstance(raw_phases, dict):
-            normalized_phases = [_normalize_phase(raw_phases)]
-        elif isinstance(raw_phases, (list, tuple)):
-            for p in raw_phases:
-                normalized_phases.append(_normalize_phase(p))
-        elif isinstance(raw_phases, str):
-            # fallback: split lines into simple phase titles
-            lines = [ln.strip() for ln in raw_phases.splitlines() if ln.strip()]
-            if not lines:
-                raise RuntimeError("AI returned phases as an unparseable string")
-            for ln in lines:
-                normalized_phases.append({"title": ln, "tasks": []})
-        else:
-            raise RuntimeError(f"AI returned phases in an unexpected format (type={type(raw_phases).__name__})")
-
-        # 4) Enforce active-wish limit if creating new
-        wish_obj = None
-        if req.wish_id:
-            wish_obj = db.query(Wish).filter(Wish.id == req.wish_id).first()
-
-        creating_new = wish_obj is None
-        if creating_new and user.tier != Tier.pro and active_wish_count(db, user.id) >= FREE_ACTIVE_WISH_LIMIT:
-            raise HTTPException(status_code=403, detail="Free limit reached. Delete/complete an active wish to continue.")
-
-        # 5) Create or update the Wish
-        now = datetime.now(timezone.utc)
-        if wish_obj:
-            wish = _persist_wish_phases(db, wish_obj, normalized_phases)
-            # prefer AI title > request title > truncated wish text
-            if ai_title:
-                wish.title = ai_title
-            elif req.title:
-                wish.title = req.title
-            db.add(wish)
-            db.commit()
-            db.refresh(wish)
-            saved = wish
-            created = False
-        else:
-            wish_id = req.wish_id or str(uuid4())
-            # pick title: AI title > req.title > truncated req.wish
-            chosen_title = ai_title or req.title or (req.wish[:80] + ("..." if len(req.wish) > 80 else ""))
-            normalized_phases = _ensure_task_ids_in_phases(normalized_phases)
-            new = Wish(
-                id=wish_id,
-                owner_id=user.id,
-                title=chosen_title,
-                phases=normalized_phases,
-                status=WishStatus.in_progress,
-                created_at=now,
-                deleted=False
-            )
-            db.add(new)
-            db.commit()
-            db.refresh(new)
-            saved = new
-            created = True
-
-        # 6) Return canonical saved wish and owner id
-        return {
-            "ok": True,
-            "created": created,
-            "wish": {
-                "id": saved.id,
-                "owner_id": saved.owner_id,
-                "title": saved.title,
-                "phases": saved.phases,
-                "status": saved.status,
-                "created_at": saved.created_at,
-            },
-            "owner_id": user.id
-        }
-
-    except HTTPException:
-        raise
-    except FileNotFoundError as e:
-        print("FileNotFoundError in /api/wishes/plan:", str(e))
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Server misconfiguration (missing file).")
-    except Exception as e:
-        # Log truncated raw AI output & stacktrace to aid debugging
-        print("Unhandled exception in /api/wishes/plan:", str(e))
+    # Defensive JSON parsing if AI returns a JSON string
+    if isinstance(out, str):
         try:
-            print("Raw AI output (truncated):", json.dumps(out)[:2000])
+            out = json.loads(out)
         except Exception:
-            try:
-                print("Raw AI output (repr):", repr(out)[:2000])
-            except Exception:
-                pass
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Plan generation failed, check server logs for details.")
+            # keep raw string -> below validation will handle heuristics
+            pass
+
+    if not isinstance(out, dict):
+        # final attempt: if out is something else, raise helpful error
+        raise RuntimeError("AI returned unexpected top-level type (expected dict)")
+
+    # 2) Validate & normalize top level fields
+    ai_title = out.get("title")
+
+    raw_phases = out.get("phases")
+    if raw_phases is None:
+        # maybe the model placed steps/plan under other keys — try fallbacks
+        for fallback in ("plan", "steps", "outline", "result"):
+            if fallback in out:
+                candidate = out[fallback]
+
+                # If candidate is a dict that itself contains "phases" (the common "plan": {...} case),
+                # pull the inner phases list out. If candidate is already a list, use it directly.
+                if isinstance(candidate, dict) and "phases" in candidate and isinstance(candidate["phases"], (list, tuple)):
+                    raw_phases = candidate["phases"]
+                elif isinstance(candidate, (list, tuple)):
+                    raw_phases = candidate
+                else:
+                    # otherwise fall back to the candidate itself (later normalization will try to coerce)
+                    raw_phases = candidate
+                break
+
+    # If phases is a JSON string, try parse
+    if isinstance(raw_phases, str):
+        try:
+            raw_phases = json.loads(raw_phases)
+        except Exception:
+            # keep the string — normalization will attempt to split by lines
+            pass
+
+    if raw_phases is None:
+        raise RuntimeError("AI returned no phases")
+
+    # Now normalize: accept dict (wrap), list, or string forms
+    normalized_phases = []
+    if isinstance(raw_phases, dict):
+        normalized_phases = [_normalize_phase(raw_phases)]
+    elif isinstance(raw_phases, (list, tuple)):
+        for p in raw_phases:
+            normalized_phases.append(_normalize_phase(p))
+    elif isinstance(raw_phases, str):
+        # fallback: split lines into simple phase titles
+        lines = [ln.strip() for ln in raw_phases.splitlines() if ln.strip()]
+        if not lines:
+            raise RuntimeError("AI returned phases as an unparseable string")
+        for ln in lines:
+            normalized_phases.append({"title": ln, "tasks": []})
+    else:
+        raise RuntimeError(f"AI returned phases in an unexpected format (type={type(raw_phases).__name__})")
+
+    # 4) Enforce active-wish limit if creating new
+    wish_obj = None
+    if req.wish_id:
+        wish_obj = db.query(Wish).filter(Wish.id == req.wish_id).first()
+
+    creating_new = wish_obj is None
+    if creating_new and user.tier != Tier.pro and active_wish_count(db, user.id) >= FREE_ACTIVE_WISH_LIMIT:
+        raise HTTPException(status_code=403, detail="Free limit reached. Delete/complete an active wish to continue.")
+
+    # 5) Create or update the Wish
+    now = datetime.now(timezone.utc)
+    if wish_obj:
+        wish = _persist_wish_phases(db, wish_obj, normalized_phases)
+        # prefer AI title > request title > truncated wish text
+        if ai_title:
+            wish.title = ai_title
+        elif req.title:
+            wish.title = req.title
+        db.add(wish)
+        db.commit()
+        db.refresh(wish)
+        saved = wish
+        created = False
+    else:
+        wish_id = req.wish_id or str(uuid4())
+        # pick title: AI title > req.title > truncated req.wish
+        chosen_title = ai_title or req.title or (req.wish[:80] + ("..." if len(req.wish) > 80 else ""))
+        normalized_phases = _ensure_task_ids_in_phases(normalized_phases)
+        new = Wish(
+            id=wish_id,
+            owner_id=user.id,
+            title=chosen_title,
+            phases=normalized_phases,
+            status=WishStatus.in_progress,
+            created_at=now,
+            deleted=False
+        )
+        db.add(new)
+        db.commit()
+        db.refresh(new)
+        saved = new
+        created = True
+
+    # 6) Return canonical saved wish and owner id
+    return {
+        "ok": True,
+        "created": created,
+        "wish": {
+            "id": saved.id,
+            "owner_id": saved.owner_id,
+            "title": saved.title,
+            "phases": saved.phases,
+            "status": saved.status,
+            "created_at": saved.created_at,
+        },
+        "owner_id": user.id
+    }
 
 @app.get("/api/test_chatgpt_pipeline")
 def test_chatgpt_pipeline():
@@ -777,4 +919,8 @@ def edit_task(wish_id: str, task_id: str, payload: TaskEdit, db: Session = Depen
     # persist and return fresh wish
     saved = _persist_wish_phases(db, wish, phases)
     return {"ok": True, "wish": {"id": saved.id, "phases": saved.phases}}
+
+@app.get("/api/whoami")
+def whoami(current_user: User = Depends(get_current_user)):
+    return {"user_id": current_user.id}
 

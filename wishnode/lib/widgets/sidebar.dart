@@ -5,6 +5,7 @@ import 'package:wishnode/main.dart';
 import 'package:wishnode/widgets/wishpath_model.dart';
 import '../wishnode_api.dart';
 import '../models/wish_models.dart';
+import '../api_singleton.dart' as api_singleton;
 import 'vault.dart';
 class SidebarDrawer extends StatefulWidget {
   final bool initiallyOpen;
@@ -44,7 +45,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   void initState() {
     super.initState();
     _open = widget.initiallyOpen;
-    _client = WishnodeApi();
+    _client = api_singleton.wishnodeApi;
 
     // Only try to fetch if we have a non-empty userId.
     // This avoids hitting the network during early app startup if main()
@@ -60,7 +61,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   void didUpdateWidget(covariant SidebarDrawer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) {
-      _client = WishnodeApi();
+      _client = api_singleton.wishnodeApi;
       // Only fetch if new userId is non-empty
       if (widget.userId.isNotEmpty) {
         _fetchWishes();
@@ -169,7 +170,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
   });
 
   try {
-    final List<ItemOut> itemsOut = await _client.getVault(widget.userId);
+    final List<ItemOut> itemsOut = await _client.getVault();
 
     // Convert to List<Map<String, dynamic>> expected by Vault()
     

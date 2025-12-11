@@ -5,10 +5,10 @@ import 'package:http/http.dart';
 import 'widgets/wishpath_model.dart';
 import 'widgets/goal_input.dart';
 import 'widgets/sidebar.dart';
-import 'ai_service.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/wish_models.dart';
+import 'api_singleton.dart' as api_singleton;
 // Add import for the API wrapper
 import 'wishnode_api.dart';
 
@@ -16,6 +16,7 @@ import 'wishnode_api.dart';
 import 'widgets/item_popup.dart';
 
 const String _kStoredUserIdKey = 'wishnode_anon_user_id';
+const String _kStoredTokenKey = 'wishnode_token';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,7 +75,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
   @override
   void initState() {
     super.initState();
-    _apiClient = WishnodeApi();
+    _apiClient = api_singleton.wishnodeApi;
     _fetchOrCreateAnonUser();
   }
 
@@ -106,6 +107,20 @@ class _WishnodeHomeState extends State<WishnodeHome> {
       rethrow;
     }
   }
+    Future<void> _clearStoredCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kStoredUserIdKey);
+      await prefs.remove(_kStoredTokenKey);
+    } catch (e) {
+      // ignore
+    }
+    _apiClient.setToken('');
+    // update in-memory
+    setState(() {
+      _userId = null;
+    });
+  }
 
   void _setPanelVisible(bool value) {
     setState(() {
@@ -135,46 +150,93 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     }
   }
 
-  Future<void> _fetchOrCreateAnonUser() async {
+  Future<String?> _getStoredToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_kStoredTokenKey);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> _storeToken(String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kStoredTokenKey, token);
+    } catch (e) {
+      // ignore failures
+    }
+  }
+
+    Future<void> _fetchOrCreateAnonUser() async {
     setState(() {
       _fetchingUser = true;
       _userFetchError = null;
     });
 
     try {
-      final stored = await _getStoredUserId();
-      if (stored != null && stored.isNotEmpty) {
-        setState(() {
-          _userId = stored;
-        });
-        return;
+      final storedToken = await _getStoredToken();
+      final storedId = await _getStoredUserId();
+
+      // If we have a token, attempt to validate it regardless of storedId.
+      if (storedToken != null && storedToken.isNotEmpty) {
+        _apiClient.setToken(storedToken);
+
+        try {
+          // Always ask server who this token belongs to
+          final who = await _apiClient.whoAmI();
+          final uid = who['user_id'];
+          if (uid != null && uid is String && uid.isNotEmpty) {
+            // valid token: persist canonical id (if different) and use it
+            await _storeUserId(uid);
+            setState(() => _userId = uid);
+
+            // Make sure sidebar fetches wishes now we have valid auth
+            (_sidebarKey.currentState as dynamic)?.refresh();
+            return;
+          } else {
+            // unexpected response — clear stored creds and fallthrough
+            print('[main] whoAmI returned no user_id; clearing stored credentials');
+            await _clearStoredCredentials();
+          }
+        } catch (e, st) {
+          // whoAmI failed (likely 401). Clear stored creds and continue to createAnon.
+          print('[main] whoAmI validation failed: $e\n$st — clearing stored cred');
+          await _clearStoredCredentials();
+        }
       }
 
-      final anonId = await _apiClient.createAnon();
+      // No valid token — request a new anon identity from server.
+      final createResp = await _apiClient.createAnon();
+      final anonId = createResp['anon_user_id']?.toString();
+      final token = createResp['token']?.toString();
+
+      if (token == null || token.isEmpty) {
+        throw Exception("Server returned no token when creating anon user");
+      }
+      if (anonId == null || anonId.isEmpty) {
+        throw Exception("Server returned no anon_user_id when creating anon user");
+      }
+
+      await _storeToken(token);
       await _storeUserId(anonId);
+      _apiClient.setToken(token);
+
+      setState(() => _userId = anonId);
+
+      // Ensure sidebar fetches newly-available wishes
+      (_sidebarKey.currentState as dynamic)?.refresh();
+    } catch (e, st) {
+      print('[main] _fetchOrCreateAnonUser error: $e\n$st');
       setState(() {
-        _userId = anonId;
-      });
-    } catch (e) {
-      setState(() {
-        _userFetchError = e.toString();
         _userId = null;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Failed to get anon user id: ${_userFetchError ?? 'unknown'}',
-            ),
-          ),
-        );
+        _userFetchError = e.toString();
       });
     } finally {
-      setState(() {
-        _fetchingUser = false;
-      });
+      if (mounted) setState(() => _fetchingUser = false);
     }
   }
+
 
   // ---- wish / plan logic ----
 
@@ -192,7 +254,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
         if (_userId == null) throw Exception('No user id available');
       }
 
-      final raw = await AiService.generatePlan(wishText, _userId ?? "");
+      final raw = await _apiClient.generatePlan(wishText);
 
       try {
         final decoded = jsonDecode(raw);
