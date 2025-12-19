@@ -8,6 +8,7 @@ class TaskModel {
 	bool completed;
 	DateTime? completedAt;
   int? repeatedAmount;
+  String phaseId;
 
 	TaskModel({
 		required this.id,
@@ -15,7 +16,8 @@ class TaskModel {
 		this.completed = false,
 		this.repeat = false,
 		this.completedAt,
-    this.repeatedAmount
+    this.repeatedAmount,
+    required this.phaseId
 	});
 }
 
@@ -178,6 +180,7 @@ class WishModel {
         completed: completed,
         completedAt: completedAt,
         repeatedAmount: repeatedAmount,
+        phaseId: p["id"]
       ));
 
       tid++;

@@ -110,7 +110,7 @@ def _safe_parse_json_from_assistant(assistant_text: str) -> Optional[Dict[str, A
             return None
     return None
 
-def get_plan_from_chatgpt(wish: str, client: Any, model: str = "gpt-4o-mini", max_tokens: int = 1200) -> Dict[str, Any]:
+def get_plan_from_chatgpt(wish: str, context: str, client: Any, model: str = "gpt-4o-mini", max_tokens: int = 1200) -> Dict[str, Any]:
     """
     Generate a structured plan from ChatGPT given a 'wish' string.
 
@@ -121,11 +121,13 @@ def get_plan_from_chatgpt(wish: str, client: Any, model: str = "gpt-4o-mini", ma
     """
     prompt_template = _load_file_text(PLAN_PROMPT_PATH)
     structure_text = _load_file_text(PLAN_STRUCTURE_PATH)
+    final_prompt = prompt_template
 
-    if "{{wish}}" in prompt_template:
-        final_prompt = prompt_template.replace("{{wish}}", wish)
-    else:
-        final_prompt = f"{prompt_template}\n\nWish: {wish}"
+    if "{{context}}" in final_prompt:
+        final_prompt = final_prompt.replace("{{context}}", context)
+
+    if "{{wish}}" in final_prompt:
+        final_prompt = final_prompt.replace("{{wish}}", wish)
 
     final_prompt = (
         final_prompt

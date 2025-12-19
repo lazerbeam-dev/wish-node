@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:wishnode/ui/pallet.dart';
 import 'item_card.dart';
 
 /// A bottom popup that briefly shows an item using ItemCard.
@@ -65,7 +66,7 @@ class ItemPopupState extends State<ItemPopup> {
                     : ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 720, minHeight: 90),
                         child: Material(
-                          color: const Color.fromARGB(255, 0, 0, 0),
+                          color: Palette.darkest,
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             child: ItemCard(item: _item!),

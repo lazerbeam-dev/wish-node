@@ -1,9 +1,10 @@
 {
   "name": "string",
+  "core_id": "the core item conceptual id like scepter_of_justice - this should not change between upgrades, even if title changes",
   "legendariness": "1-100 how amazing are the achievements that justified the forging of this item",
   "description": "short string",
   "emoji": "the emoji that most closely resembles the item",
   "emoji_accent": "an additional emoji to embellish the item with, flavor",
-  "upgrades_previous": "The title of the item we are upgrading, if any",
+  "upgrades_previous": "The core_id of the item we are upgrading, if any",
   "tags": ["list of strings"]
 }

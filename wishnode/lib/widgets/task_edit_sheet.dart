@@ -35,17 +35,17 @@ Future<Map<String, dynamic>?> showTaskEditSheet(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Edit task', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('Edit task', style: TextStyle(color: Palette.ourWhite, fontSize: 18, fontWeight: FontWeight.w700)),
                 SizedBox(height: 12),
                 TextField(
                   controller: controller,
                   autofocus: true,
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: Palette.ourWhite),
                   decoration: InputDecoration(
                     hintText: 'Task title',
-                    hintStyle: TextStyle(color: Palette.muted.withOpacity(0.7)),
+                    hintStyle: TextStyle(color: Palette.dampTitles.withOpacity(0.7)),
                     filled: true,
-                    fillColor: Palette.bg.withOpacity(0.02),
+                    fillColor: Palette.darkest.withOpacity(0.02),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                     contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                   ),
@@ -60,7 +60,7 @@ Future<Map<String, dynamic>?> showTaskEditSheet(
                       activeColor: Palette.accent,
                     ),
                     SizedBox(width: 8),
-                    Text('Repeat (habit)', style: TextStyle(color: Palette.muted)),
+                    Text('Repeat (habit)', style: TextStyle(color: Palette.dampTitles)),
                   ],
                 ),
                 SizedBox(height: 12),
@@ -69,7 +69,7 @@ Future<Map<String, dynamic>?> showTaskEditSheet(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Palette.accent,
-                      foregroundColor: Colors.black,
+                      foregroundColor: Palette.darkest,
                       padding: EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
@@ -123,17 +123,17 @@ Future<Map<String, dynamic>?> showTaskAddSheet(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Add task', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('Add task', style: TextStyle(color: Palette.ourWhite, fontSize: 18, fontWeight: FontWeight.w700)),
                 SizedBox(height: 12),
                 TextField(
                   controller: controller,
                   autofocus: true,
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: Palette.ourWhite),
                   decoration: InputDecoration(
                     hintText: 'Task title',
-                    hintStyle: TextStyle(color: Palette.muted.withOpacity(0.7)),
+                    hintStyle: TextStyle(color: Palette.dampTitles.withOpacity(0.7)),
                     filled: true,
-                    fillColor: Palette.bg.withOpacity(0.02),
+                    fillColor: Palette.darkest.withOpacity(0.02),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                     contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                   ),
@@ -148,7 +148,7 @@ Future<Map<String, dynamic>?> showTaskAddSheet(
                       activeColor: Palette.accent,
                     ),
                     SizedBox(width: 8),
-                    Text('Repeat (habit)', style: TextStyle(color: Palette.muted)),
+                    Text('Repeat (habit)', style: TextStyle(color: Palette.dampTitles)),
                   ],
                 ),
                 SizedBox(height: 12),
@@ -156,7 +156,7 @@ Future<Map<String, dynamic>?> showTaskAddSheet(
                   width: double.infinity,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Palette.good,
+                      backgroundColor: Palette.signatureGreen,
                       foregroundColor: Colors.black,
                       padding: EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

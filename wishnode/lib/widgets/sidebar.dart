@@ -7,6 +7,7 @@ import '../wishnode_api.dart';
 import '../models/wish_models.dart';
 import '../api_singleton.dart' as api_singleton;
 import 'vault.dart';
+import '../ui/pallet.dart';
 class SidebarDrawer extends StatefulWidget {
   final bool initiallyOpen;
   final String userId; // required: anon or real user id
@@ -221,7 +222,7 @@ class _SidebarDrawerState extends State<SidebarDrawer> {
       duration: Duration(milliseconds: 240),
       width: _open ? fullWidth : compactWidth,
       decoration: BoxDecoration(
-        color: _open ? Color(0xFF2A2A2F) : Colors.transparent,
+        color: _open ? Palette.darkest : Colors.transparent,
         borderRadius: BorderRadius.only(
           topRight: Radius.circular(18),
           bottomRight: Radius.circular(18),
@@ -256,7 +257,7 @@ child: LayoutBuilder(
               Text(
                 'WISHNODE',
                 style: TextStyle(
-                  color: Color(0xFFBDFFD8),
+                  color: Palette.signatureGreen,
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
@@ -264,7 +265,7 @@ child: LayoutBuilder(
               SizedBox(height: 18),
               Text(
                 'CURRENT GOALS',
-                style: TextStyle(color: Color(0xFF8790A8), fontSize: 12),
+                style: TextStyle(color: Palette.dampTitles, fontSize: 12),
               ),
               SizedBox(height: 8),
 
@@ -279,7 +280,7 @@ child: LayoutBuilder(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                       SizedBox(width: 12),
-                      Text('Loading...', style: TextStyle(color: Color(0xFFD6D8E1))),
+                      Text('Loading...', style: TextStyle(color:Palette.ourWhite)),
                     ],
                   ),
                 )
@@ -287,7 +288,7 @@ child: LayoutBuilder(
                 Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Text('Error loading goals: $_error',
-                      style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                      style: TextStyle(color: Palette.ourWhite, fontSize: 13)),
                 )
               else
                 ConstrainedBox(
@@ -310,7 +311,7 @@ child: LayoutBuilder(
                           : [
                               Padding(
                                 padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text('No active goals', style: TextStyle(color: Color(0xFF8790A8))),
+                                child: Text('No active goals', style: TextStyle(color: Palette.dampTitles)),
                               )
                             ],
                     ),
@@ -323,11 +324,11 @@ child: LayoutBuilder(
                 alignment: Alignment.centerLeft,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Color(0xFF6EA8FF),
+                    color: Palette.brightCta,
                     borderRadius: BorderRadius.circular(26),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black26,
+                        color: Palette.darkest,
                         blurRadius: 6,
                         offset: Offset(0, 2),
                       ),
@@ -339,7 +340,7 @@ child: LayoutBuilder(
                       padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                       child: Text('VAULT',
                           style: TextStyle(
-                            color: Color(0xFF0F1724),
+                            color: Palette.vaultButton,
                             fontWeight: FontWeight.bold,
                           )),
                     ),
@@ -349,7 +350,7 @@ child: LayoutBuilder(
 
               SizedBox(height: 16),
 
-              Text('ACHIEVED GOALS', style: TextStyle(color: Color(0xFF8790A8), fontSize: 12)),
+              Text('ACHIEVED GOALS', style: TextStyle(color: Palette.dampTitles, fontSize: 12)),
               SizedBox(height: 8),
               ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: 160),
@@ -371,7 +372,7 @@ child: LayoutBuilder(
                         : [
                             Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Text('No achieved goals yet', style: TextStyle(color: Color(0xFF8790A8))),
+                              child: Text('No achieved goals yet', style: TextStyle(color: Palette.dampTitles)),
                             )
                           ],
                   ),
@@ -384,11 +385,11 @@ child: LayoutBuilder(
                 alignment: Alignment.centerLeft,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Color(0xFFBDFFD8),
+                    color: Palette.signatureGreen,
                     borderRadius: BorderRadius.circular(26),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black26,
+                        color: Palette.darkest,
                         blurRadius: 6,
                         offset: Offset(0, 2),
                       ),
@@ -400,7 +401,7 @@ child: LayoutBuilder(
                       padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                       child: Text('MAKE A WISH',
                           style: TextStyle(
-                            color: Color(0xFF282A2F),
+                            color: Palette.darkest,
                             fontWeight: FontWeight.bold,
                           )),
                     ),
@@ -430,7 +431,7 @@ child: LayoutBuilder(
                 width: compactWidth,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: Color(0xFF3B3B40),
+                  color: Palette.darkest,
                   borderRadius: BorderRadius.only(
                     topRight: Radius.circular(18),
                     bottomRight: Radius.circular(18),
@@ -441,7 +442,7 @@ child: LayoutBuilder(
                 child: Center(
                   child: Icon(
                     _open ? Icons.chevron_left : Icons.chevron_right,
-                    color: Color(0xFFD6D8E1),
+                    color: Palette.dampTitles,
                   ),
                 ),
               ),
@@ -468,7 +469,7 @@ Widget _goalTile({
           onTap: onTap,
           child: Icon(
             icon,
-            color: active ? Color(0xFF8790A8) : Color(0xFF545B75),
+            color: active ? Palette.ourWhite : Palette.dampTitles,
             size: 20,
           ),
         ),
@@ -480,7 +481,7 @@ Widget _goalTile({
             child: Text(
               label,
               style: TextStyle(
-                color: active ? Color(0xFFD6D8E1) : Color(0xFF545B75),
+                color: active ? Palette.ourWhite: Palette.dampTitles,
                 fontSize: 16,
               ),
             ),
@@ -489,16 +490,16 @@ Widget _goalTile({
 
         // three-dot menu
         PopupMenuButton<int>(
-          color: Color(0xFF2A2A2F),
+          color: Palette.darkest,
           icon: Icon(Icons.more_vert,
-              color: active ? Color(0xFF8790A8) : Color(0xFF545B75)),
+              color: active ? Palette.ourWhite : Palette.dampTitles),
           onSelected: (v) {
             if (v == 0) onDelete();
           },
           itemBuilder: (context) => [
             PopupMenuItem(
               value: 0,
-              child: Text('Delete', style: TextStyle(color: Colors.white)),
+              child: Text('Delete', style: TextStyle(color: Palette.ourWhite)),
             ),
           ],
         ),

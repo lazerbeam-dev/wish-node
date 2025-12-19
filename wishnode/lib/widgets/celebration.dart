@@ -100,7 +100,7 @@ class ConfettiOverlay extends StatelessWidget {
           gravity: 0.25,
           minBlastForce: 6,
           maxBlastForce: 14,
-          colors: [Palette.good, Palette.accent, Palette.ring],
+          colors: [Palette.brightCta, Palette.accent, Palette.card],
           createParticlePath: createParticlePath ?? _starPath,
         ),
       ),

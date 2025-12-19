@@ -23,7 +23,7 @@ class StartNode extends StatelessWidget {
 							NodeCircle(
 								label: 'You',
 								subtitle: 'Start',
-								color: Palette.ring,
+								color: Palette.signatureGreen,
 								size: Palette.nodeSize,
 								ring: true,
 							),
@@ -37,14 +37,14 @@ class StartNode extends StatelessWidget {
 								),
 								child: Column(
 									children: [
-										Text(wish.title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+										Text(wish.title, style: TextStyle(color: Palette.ourWhite, fontWeight: FontWeight.w600)),
 										if (current != null) ...[
 											SizedBox(height: 6),
 											Row(
 												children: [
 													Icon(Icons.whatshot, size: 14, color: Palette.accent),
 													SizedBox(width: 6),
-													Expanded(child: Text(current!.text, style: TextStyle(color: Palette.muted, fontSize: 12))),
+													Expanded(child: Text(current!.text, style: TextStyle(color: Palette.dampTitles, fontSize: 12))),
 												],
 											)
 										]

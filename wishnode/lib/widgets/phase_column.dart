@@ -39,7 +39,7 @@ class PhaseColumn extends StatelessWidget {
           decoration: BoxDecoration(
             color: Palette.card,
             borderRadius: borderRadius,
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))],
+            boxShadow: [BoxShadow(color: Palette.darkest, blurRadius: 8, offset: Offset(0, 4))],
           ),
           clipBehavior: Clip.none,
           child: Column(
@@ -49,9 +49,9 @@ class PhaseColumn extends StatelessWidget {
                 children: [
                   PhaseDot(index: phaseIndex),
                   SizedBox(width: 10),
-                  Expanded(child: Text(phase.title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+                  Expanded(child: Text(phase.title, style: TextStyle(color: Palette.ourWhite, fontWeight: FontWeight.w700))),
                   SizedBox(width: 8),
-                  Text('${phase.tasks.where((t) => t.completed).length}/${phase.tasks.length}', style: TextStyle(color: Palette.muted)),
+                  Text('${phase.tasks.where((t) => t.completed).length}/${phase.tasks.length}', style: TextStyle(color: Palette.dampTitles)),
                 ],
               ),
               SizedBox(height: 10),
@@ -98,10 +98,10 @@ class PhaseColumn extends StatelessWidget {
                       padding: EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: LinearGradient(colors: [Palette.good.withOpacity(0.95), Palette.accent.withOpacity(0.95)]),
-                        boxShadow: [BoxShadow(color: Palette.good.withOpacity(0.35), blurRadius: 18, spreadRadius: 6)],
+                        gradient: LinearGradient(colors: [Palette.signatureGreen.withOpacity(0.95), Palette.accent.withOpacity(0.95)]),
+                        boxShadow: [BoxShadow(color: Palette.signatureGreen.withOpacity(0.35), blurRadius: 18, spreadRadius: 6)],
                       ),
-                      child: Icon(Icons.celebration, size: 44, color: Colors.black),
+                      child: Icon(Icons.celebration, size: 44, color: Palette.darkest),
                     ),
                   ),
                 ),

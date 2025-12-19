@@ -14,38 +14,53 @@ class TaskMutations {
 	/// - onPersist: optional persistence callback from parent (wishNodeMap.widget.onAddTask). If null, no network call attempted.
 	/// Returns the created TaskModel (or null if cancelled).
 	static Future<TaskModel?> addTaskToPhase({
-		required BuildContext context,
-		required PhaseModel phase,
-		required String wishId,
-		required LocalCreateCallback onCreateLocal,
-		required LocalRollbackCallback onRollbackLocal,
-		Future<void> Function(String wishId, String phaseId, String newTitle, bool newRepeat)? onPersist,
-	}) async {
-		final res = await showTaskAddSheet(context);
-		if (res == null) return null;
-		final title = (res['title'] ?? '').toString();
-		final repeat = res['repeat'] == true;
+	required BuildContext context,
+	required PhaseModel phase,
+	required String wishId,
+	required LocalCreateCallback onCreateLocal,
+	required Future<String> Function(
+		String wishId,
+		String phaseId,
+		String newTitle,
+		bool newRepeat,
+	) onPersist,
+}) async {
+	final res = await showTaskAddSheet(context);
+	if (res == null) return null;
 
-		final newTask = TaskModel(id: UniqueKey().toString(), text: title, repeat: repeat, completed: false);
+	final title = (res['title'] ?? '').toString();
+	final repeat = res['repeat'] == true;
 
-		// caller should perform local insert (inside setState)
+	try {
+		// 1️⃣ persist first
+		final serverTaskId = await onPersist(
+			wishId,
+			phase.id,
+			title,
+			repeat,
+		);
+
+		// 2️⃣ create task with real ID
+		final newTask = TaskModel(
+			id: serverTaskId,
+			phaseId: phase.id,
+			text: title,
+			repeat: repeat,
+			completed: false,
+		);
+
+		// 3️⃣ insert locally (inside caller setState)
 		onCreateLocal(newTask);
 
-		// persist if requested
-		if (onPersist != null) {
-			try {
-				await onPersist(wishId, phase.id, title, repeat);
-			} catch (e) {
-				// rollback local change
-				onRollbackLocal(newTask);
-				ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to add task')));
-				print('onAddTask failed: $e');
-				return null;
-			}
-		}
-
 		return newTask;
+	} catch (e) {
+		ScaffoldMessenger.of(context).showSnackBar(
+			SnackBar(content: Text('Failed to add task')),
+		);
+		print('onAddTask failed: $e');
+		return null;
 	}
+}
 
 	/// Remove task: caller performs the local removal in onLocalRemove, and optionally provide onPersistRemove
 	static Future<void> removeTaskConfirmed({

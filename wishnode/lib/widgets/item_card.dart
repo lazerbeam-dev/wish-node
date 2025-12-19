@@ -5,10 +5,10 @@ class ItemCard extends StatelessWidget {
 
 	// thresholds mapping: minLegendariness -> visual style
 	static const List<_LegendStyle> _legendStyles = [
-		_LegendStyle(min: 0, color: Color(0xffE0E0E0), overlay: Icons.circle, glow: 0.0),
-		_LegendStyle(min: 30, color: Color(0xff90EE90), overlay: Icons.star_border, glow: 4.0),
-		_LegendStyle(min: 60, color: Color(0xff9B59B6), overlay: Icons.workspace_premium, glow: 8.0),
-		_LegendStyle(min: 90, color: Color(0xffFFD700), overlay: Icons.emoji_events, glow: 14.0),
+		_LegendStyle(min: 0, color: Palette.ourWhite, overlay: Icons.circle, glow: 0.0),
+		_LegendStyle(min: 30, color: Palette.signatureGreen, overlay: Icons.star_border, glow: 4.0),
+		_LegendStyle(min: 60, color: Palette.brightCta, overlay: Icons.workspace_premium, glow: 8.0),
+		_LegendStyle(min: 90, color: Palette.accent, overlay: Icons.emoji_events, glow: 14.0),
 	];
 
 	const ItemCard({super.key, required this.item});
@@ -23,7 +23,7 @@ class ItemCard extends StatelessWidget {
 
 	@override
 	Widget build(BuildContext context) {
-		final String name = (item['name'] ?? '') as String;
+		final String name = (item['title'] ?? item['name'] ?? '') as String;
 		final String description = (item['description'] ?? '') as String;
 		final String emoji = (item['emoji'] ?? '') as String;
 		final String emojiAccent = (item['emoji_accent'] ?? '') as String;
@@ -81,7 +81,7 @@ class ItemCard extends StatelessWidget {
 													child: Container(
 														decoration: BoxDecoration(
 															borderRadius: BorderRadius.circular(12),
-															color: Colors.white.withOpacity(0.04),
+															color: Palette.ourWhite.withOpacity(0.04),
 														),
 													),
 												),
@@ -123,26 +123,58 @@ class ItemCard extends StatelessWidget {
 											crossAxisAlignment: CrossAxisAlignment.start,
 											mainAxisAlignment: MainAxisAlignment.center,
 											children: [
-												Text(
-													name,
-													style: TextStyle(
-														fontSize: 16,
-														fontWeight: FontWeight.w700,
-														color: Colors.white.withOpacity(0.95),
-													),
-													maxLines: 1,
-													overflow: TextOverflow.ellipsis,
-												),
-												const SizedBox(height: 6),
-												Text(
-													description,
-													style: TextStyle(
-														fontSize: 12,
-														color: Colors.white.withOpacity(0.78),
-													),
-													maxLines: 2,
-													overflow: TextOverflow.ellipsis,
-												),
+												Tooltip(
+	message: name,
+	waitDuration: Duration(milliseconds: 400),
+	showDuration: Duration(seconds: 6),
+	preferBelow: false,
+	textStyle: TextStyle(
+		color: Palette.ourWhite,
+		fontSize: 14,
+		fontWeight: FontWeight.w600,
+	),
+	decoration: BoxDecoration(
+		color: Palette.card,
+		borderRadius: BorderRadius.circular(8),
+		border: Border.all(color: Palette.ourWhite.withOpacity(0.2)),
+	),
+	child: Text(
+		name,
+		style: TextStyle(
+			fontSize: 16,
+			fontWeight: FontWeight.w700,
+			color: Palette.ourWhite.withOpacity(0.95),
+		),
+		maxLines: 1,
+		overflow: TextOverflow.ellipsis,
+	),
+),
+
+												Tooltip(
+	message: description,
+	waitDuration: Duration(milliseconds: 400),
+	showDuration: Duration(seconds: 6),
+	preferBelow: false,
+	textStyle: TextStyle(
+		color: Palette.ourWhite,
+		fontSize: 12,
+	),
+	decoration: BoxDecoration(
+		color: Palette.card,
+		borderRadius: BorderRadius.circular(8),
+		border: Border.all(color: Palette.ourWhite.withOpacity(0.2)),
+	),
+	child: Text(
+		description,
+		style: TextStyle(
+			fontSize: 12,
+			color: Palette.ourWhite.withOpacity(0.78),
+		),
+		maxLines: 2,
+		overflow: TextOverflow.ellipsis,
+	),
+),
+
 											],
 										),
 									),
@@ -189,11 +221,11 @@ class ItemCard extends StatelessWidget {
 							),
 							child: Row(
 								children: [
-									Icon(style.overlay, size: 14, color: Colors.white),
+									Icon(style.overlay, size: 14, color: Palette.ourWhite),
 									const SizedBox(width: 6),
 									Text(
 										'',
-										style: const TextStyle(color: Colors.white, fontSize: 12),
+										style: const TextStyle(color: Palette.ourWhite, fontSize: 12),
 									),
 								],
 							),

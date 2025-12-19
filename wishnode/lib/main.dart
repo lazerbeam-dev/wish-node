@@ -1,7 +1,9 @@
 // lib/main.dart
 import 'dart:async';
+import 'dart:js_interop';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart';
+import 'package:wishnode/ui/pallet.dart';
 import 'widgets/wishpath_model.dart';
 import 'widgets/goal_input.dart';
 import 'widgets/sidebar.dart';
@@ -11,7 +13,7 @@ import 'models/wish_models.dart';
 import 'api_singleton.dart' as api_singleton;
 // Add import for the API wrapper
 import 'wishnode_api.dart';
-
+import 'widgets/stateless_widgets.dart';
 // Add import for the popup widget
 import 'widgets/item_popup.dart';
 
@@ -125,6 +127,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
   void _setPanelVisible(bool value) {
     setState(() {
       _panelVisible = value;
+      _loading = false;
     });
     print("setpanelvisible_" + value.toString());
   }
@@ -240,7 +243,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
 
   // ---- wish / plan logic ----
 
-  Future<void> _onPlanPressed() async {
+  Future<void> _onPlanPressed(String? wish_context) async {
     final wishText = _controller.text.trim();
     if (wishText.isEmpty) return;
     setState(() {
@@ -254,7 +257,15 @@ class _WishnodeHomeState extends State<WishnodeHome> {
         if (_userId == null) throw Exception('No user id available');
       }
 
-      final raw = await _apiClient.generatePlan(wishText);
+      final raw = await _apiClient.generatePlan(
+        wishText,
+        context: wish_context ?? "",
+      );
+
+      if(raw == "MAXED_OUT"){
+        _showWishLimitModal();
+        return;
+      }
 
       try {
         final decoded = jsonDecode(raw);
@@ -267,6 +278,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
             setState(() {
               _userId = returned;
             });
+            _controller.clear();
           }
         }
       } catch (e) {
@@ -278,7 +290,9 @@ class _WishnodeHomeState extends State<WishnodeHome> {
         _wish = parsed;
         _loading = false;
       });
+      _hidePanel();
       (_sidebarKey.currentState as dynamic)?.refresh();
+      
     } catch (e) {
       setState(() {
         _wish = null;
@@ -322,8 +336,55 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     // function returns instantly (fire-and-forget)
   }
 
+  void _showWishLimitModal() {
+	showDialog(
+		context: context,
+		barrierDismissible: true,
+		builder: (_) => WishLimitModal(
+			onDismiss: () => Navigator.of(context).pop(),
+			onSubmit: (email) async {
+				final trimmed = email.trim();
+
+				final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+				if (!emailRegex.hasMatch(trimmed)) {
+					ScaffoldMessenger.of(context).showSnackBar(
+						SnackBar(content: Text('Please enter a valid email address')),
+					);
+					return;
+				}
+
+				try {
+					await _apiClient.attachEmail(trimmed);
+
+					Navigator.of(context).pop();
+
+					ScaffoldMessenger.of(context).showSnackBar(
+						SnackBar(content: Text('Thanks!')),
+					);
+				} catch (e) {
+					String msg = 'Something went wrong';
+					if (e is ApiException && e.message.isNotEmpty) {
+						msg = e.message;
+					}
+					ScaffoldMessenger.of(context).showSnackBar(
+						SnackBar(content: Text(msg)),
+					);
+				}
+			},
+		),
+	).then((_) {
+		// 🔑 THIS is the important part
+		if (!mounted) return;
+		setState(() {
+			_loading = false;
+		});
+	});
+}
+
+
   Future<void> _handleUncompleteTask(String wishId, String taskId) async {
     try {
+      print("UNCOMPLETE HERE");
       // ask backend to mark the task incomplete (server will clear completed/completed_at)
       await _apiClient.completeTask(wishId, taskId, markIncomplete: true);
       // success -> nothing else to do (keep optimistic UI)
@@ -335,35 +396,65 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     }
   }
 
+  Future<void> _handleWishComplete() async {
+	// Sidebar owns wish categorisation, so just tell it to refresh
+  print("WE REFRESH");
+	(_sidebarKey.currentState as dynamic)?.refresh();
+}
+
   Future<void> _handleRemoveTask(String wishId, String taskId) async {
-    try {
-      await _apiClient.deleteTask(wishId, taskId);
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to mark task complete.')));
-    }
-  }
+	try {
+		await _apiClient.deleteTask(wishId, taskId);
 
-  Future<void> _handleEditTask(String wishId, String taskId, String newTitle, bool newRepeat) async {
-    try {
-      await _apiClient.editTask(wishId, taskId, newTitle, newRepeat);
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to mark task complete.')));
-    }
-  }
+		setState(() {
+			for (final phase in _wish?.phases ?? []) {
+				phase.tasks.removeWhere((t) => t.id == taskId);
+			}
+		});
+	} catch (e) {
+		ScaffoldMessenger.of(context).showSnackBar(
+			const SnackBar(content: Text('Failed to remove task')),
+		);
+	}
+}
 
-  Future<void> _handleAddTask(String wishId, String phaseId, String newTitle, bool newRepeat) async {
-    try {
-      await _apiClient.addTask(wishId, phaseId, newTitle, newRepeat);
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to mark task complete.')));
-    }
-  }
+
+  Future<void> _handleEditTask(
+	String wishId,
+	String taskId,
+	String newTitle,
+	bool newRepeat,
+) async {
+	await _apiClient.editTask(wishId, taskId, newTitle, newRepeat);
+
+	setState(() {
+		final phase = _wish?.phases.firstWhere(
+			(p) => p.tasks.any((t) => t.id == taskId),
+			orElse: () => throw Exception('Phase not found'),
+		);
+		final task = phase!.tasks.firstWhere((t) => t.id == taskId);
+		task.text = newTitle;
+		task.repeat = newRepeat;
+	});
+}
+
+
+  Future<String> _handleAddTask(
+	String wishId,
+	String phaseId,
+	String newTitle,
+	bool newRepeat,
+) async {
+	final created = await _apiClient.addTask(
+		wishId,
+		phaseId,
+		newTitle,
+		newRepeat,
+	);
+  print("CREATED: " + json.encode(created));
+  return created["task"]["id"];
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -373,12 +464,12 @@ class _WishnodeHomeState extends State<WishnodeHome> {
           // --- Fullscreen map background ---
           Positioned.fill(
             child: Container(
-              color: Color(0xFF2F3138),
+              color: Palette.darkest,
               child: (_wish == null)
                   ? Center(
                       child: Text(
                         'Ask for something and see the path appear',
-                        style: TextStyle(color: Color(0xFF9AA0A8)),
+                        style: TextStyle(color: Palette.dampTitles),
                       ),
                     )
                   : WishNodeMap(
@@ -395,6 +486,14 @@ class _WishnodeHomeState extends State<WishnodeHome> {
                           _handleAddTask(wishId, phaseId, newTitle, newRepeat),
                       onUncompleteTask: (wishId, taskId) =>
                           _handleUncompleteTask(wishId, taskId),
+                      onWishCompleted: () => _handleWishComplete(),
+                      onAddTaskCommitted: (task) {
+                      setState(() {
+                        final phase = _wish?.phases.firstWhere((p) => p.id == task.phaseId);
+                        if (phase == null) return;
+                        phase.tasks.add(task);
+                      });
+},
                     ),
             ),
           ),
@@ -407,7 +506,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
             width: 260,
             child: _fetchingUser
                 ? Container(
-                    color: Color(0xFF2A2A2F),
+                    color: Palette.card,
                     child: Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -417,13 +516,13 @@ class _WishnodeHomeState extends State<WishnodeHome> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(Colors.white),
+                              valueColor: AlwaysStoppedAnimation(Palette.ourWhite),
                             ),
                           ),
                           SizedBox(height: 12),
                           Text(
                             'Connecting...',
-                            style: TextStyle(color: Color(0xFFD6D8E1)),
+                            style: TextStyle(color: Palette.dampTitles),
                           ),
                         ],
                       ),
@@ -436,6 +535,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
                         initiallyOpen: true,
                         onOpenWish: (WishModel parsed) {
                           print("SET WISH:" + parsed.title);
+                          //print(parsed.phases.singleWhere((p) => p.tasks.firstWhere((t) => t.repeatedAmount !> 0).repeatedAmount != 0));
                           setState(() {
                             _wish = parsed;
                           });
@@ -445,14 +545,14 @@ class _WishnodeHomeState extends State<WishnodeHome> {
                         onDeleteWish: (wishId) => _handleDeleteWish(wishId),
                       )
                     : Container(
-                        color: Color(0xFF2A2A2F),
+                        color: Palette.card,
                         padding: EdgeInsets.all(12),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
                               'Sidebar failed to initialize',
-                              style: TextStyle(color: Colors.redAccent),
+                              style: TextStyle(color: Palette.ourWhite),
                               textAlign: TextAlign.center,
                             ),
                             SizedBox(height: 8),
@@ -474,7 +574,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
               visible: _panelVisible,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Color(0xFF424452),
+                  color: Palette.card,
                   borderRadius: BorderRadius.circular(18),
                 ),
                 padding: EdgeInsets.all(18),
@@ -494,58 +594,6 @@ class _WishnodeHomeState extends State<WishnodeHome> {
           ItemPopup(key: _itemPopupKey),
         ],
       ),
-    );
-  }
-}
-
-// --- Separated inner content: text + GoalInput, no card container ---
-class GoalInputSection extends StatelessWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool loading;
-  final Future<void> Function() onSubmitted;
-  final VoidCallback? onClose;
-  const GoalInputSection({
-    super.key,
-    required this.controller,
-    required this.focusNode,
-    required this.loading,
-    required this.onSubmitted,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'What do you want to achieve?',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-            ),
-            if (onClose != null)
-              IconButton(
-                onPressed: onClose,
-                icon: Icon(Icons.close, size: 18, color: Color(0xFF9AA0A8)),
-                padding: EdgeInsets.zero,
-                constraints: BoxConstraints(),
-                tooltip: 'Hide',
-              ),
-          ],
-        ),
-        SizedBox(height: 12),
-        GoalInput(
-          controller: controller,
-          focusNode: focusNode,
-          loading: loading,
-          onSubmitted: onSubmitted,
-          width: 640,
-        ),
-      ],
     );
   }
 }

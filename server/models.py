@@ -24,6 +24,9 @@ class User(Base):
     id = Column(String, primary_key=True)
     tier = Column(Enum(Tier), default=Tier.free)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    email = Column(String, unique=True, nullable=True)
+    password_hash = Column(String, nullable=True)
+    role = Column(String, nullable=False, default="user")
 
 class Wish(Base):
     __tablename__ = "wishes"
@@ -40,6 +43,7 @@ class Wish(Base):
 class Item(Base):
     __tablename__ = "items"
     id = Column(String, primary_key=True)
+    core_id = Column(String(32), index=True)
     origin_wish_id = Column(String, ForeignKey("wishes.id"), nullable=False)
     title = Column(String, nullable=False)
     emoji = Column(String, nullable=True)

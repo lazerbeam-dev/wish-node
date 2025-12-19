@@ -146,3 +146,4 @@ wishnode/**/Runner/
 /wishnode/android/*.kts
 /wishnode/android/*.properties
 /wishnode/android/gradle/wrapper/*.properties
+/server/scripts/create_admin.py

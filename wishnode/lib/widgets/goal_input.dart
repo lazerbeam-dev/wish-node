@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:wishnode/ui/pallet.dart';
 
 class GoalInput extends StatelessWidget {
   final TextEditingController controller;
@@ -29,7 +30,7 @@ class GoalInput extends StatelessWidget {
                 child: Container(
                   height: 56,
                   decoration: BoxDecoration(
-                    color: Color(0xFFD6D8E1),
+                    color: Palette.ourWhite,
                     borderRadius: BorderRadius.horizontal(left: Radius.circular(36)),
                   ),
                   child: Padding(
@@ -37,11 +38,11 @@ class GoalInput extends StatelessWidget {
                     child: TextField(
                       controller: controller,
                       focusNode: focusNode,
-                      style: TextStyle(color: Color(0xFF282A2F), fontSize: 16),
+                      style: TextStyle(color: Palette.card, fontSize: 16),
                       decoration: InputDecoration(
                         border: InputBorder.none,
                         hintText: 'I want to...',
-                        hintStyle: TextStyle(color: Color(0xFF545B75)),
+                        hintStyle: TextStyle(color: Palette.darkest),
                       ),
                       onSubmitted: (_) {
                         if (onSubmitted != null) onSubmitted!();
@@ -57,7 +58,7 @@ class GoalInput extends StatelessWidget {
                 child: Container(
                   height: 56,
                   decoration: BoxDecoration(
-                    color: Color(0xFF545B75),
+                    color: Palette.signatureGreen,
                     borderRadius: BorderRadius.horizontal(right: Radius.circular(36)),
                   ),
                   child: Padding(
@@ -69,11 +70,11 @@ class GoalInput extends StatelessWidget {
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation(Colors.white),
+                                valueColor: AlwaysStoppedAnimation(Palette.darkest),
                               ),
                             )
                           : Text('PLAN GOAL',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                              style: TextStyle(color: Palette.darkest, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ),

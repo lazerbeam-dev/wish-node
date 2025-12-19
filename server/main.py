@@ -12,12 +12,26 @@ from typing import Optional
 from fastapi import Header, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from passlib.context import CryptContext
 from jwt_auth import create_token_for_user, set_auth_cookie, make_auth_dependencies, user_from_token
 import json
 import traceback
 from uuid import uuid4
 from typing import Any, Dict
 import items
+from passlib.context import CryptContext
+pwd_context = CryptContext(
+	schemes=["argon2"],
+	deprecated="auto",
+)
+
+def verify_password(plain: str, hashed: str) -> bool:
+	return pwd_context.verify(plain, hashed)
+
+class AdminLoginBody(BaseModel):
+	email: str
+	password: str
+
 class PlanRequest(BaseModel):
     # human text describing the wish (required)
     wish: str
@@ -27,6 +41,7 @@ class PlanRequest(BaseModel):
     wish_id: Optional[str] = None
     # optional title override for the wish (fallback: first 80 chars of `wish`)
     title: Optional[str] = None
+    context: Optional[str] = None
 
 class TaskEdit(BaseModel):
     title: Optional[str] = None
@@ -38,6 +53,9 @@ class TaskEdit(BaseModel):
 class TaskCreate(BaseModel):
     title: str
     repeat: Optional[bool] = False
+
+class AttachEmailBody(BaseModel):
+	email: str
 
 class CompleteTaskBody(BaseModel):
     mark_incomplete: Optional[bool] = False
@@ -72,7 +90,7 @@ if not DATABASE_URL:
 # Ensure postgres scheme (basic guard)
 if not (DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgresql+psycopg2://")):
     # allow "postgres://" legacy, but prefer explicit psycopg2 URL
-    logging.warning("DATABASE_URL does not look like a Postgres URL. Continuing, but ensure it's correct.")
+    raise RuntimeError("DATABASE_URL must point to Postgres. SQLite is not supported.")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -214,30 +232,6 @@ def claim_user(anon_user_id: str, email: str, password_plain: str, db: Session =
     db.commit()
     return {"ok": True, "user_id": new_id}
 
-
-# @app.get("/api/wishes")
-# def list_active_wishes(
-#     current_user: User = Depends(get_current_user),
-#     db: Session = Depends(get_db)
-# ):
-#     user_id = current_user.id
-#     wishes = db.query(Wish).filter(
-#         Wish.owner_id == user_id,
-#         Wish.status == WishStatus.in_progress
-#     ).all()
-
-#     return {
-#         "wishes": [
-#             {
-#                 "id": w.id,
-#                 "title": w.title,
-#                 "phases": w.phases,
-#                 "created_at": w.created_at
-#             }
-#             for w in wishes
-#         ]
-#     }
-
 @app.get("/api/wishes/{wish_id}")
 def get_wish(wish_id: str, db: Session = Depends(get_db)):
     w = db.query(Wish).filter(Wish.id == wish_id).first()
@@ -282,7 +276,7 @@ def complete_task(
 
     if str(wish.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not allowed to modify this wish")
-
+    #print("RAW BODY:", body)
     phases = wish.phases or []
     updated = False
 
@@ -474,15 +468,6 @@ def test_chatgpt():
         return {"reply": resp.choices[0].message.content}
     except Exception as e:
         return {"error": str(e)}
-def _ensure_user_exists(db: Session, owner_id: str):
-    user = db.query(User).filter(User.id == owner_id).first()
-    if not user:
-        user = User(id=owner_id, tier=Tier.anon)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
 def _normalize_task(raw: Any) -> Dict:
     """
     Ensure a single task is a dict with 'title' (str), 'repeat' (bool),
@@ -666,40 +651,6 @@ def list_user_wishes(
         ]
     }
 
-# @app.get("/api/users/{user_id}/wishes")
-# def list_user_wishes(user_id: str, db: Session = Depends(get_db)):
-#     """
-#     Return all wishes for a user with minimal fields for UI lists:
-#       [{ "id": "...", "title": "...", "status": "...", "deleted": False }, ...]
-#     """
-#     user = db.query(User).filter(User.id == user_id).first()
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User not found")
-
-#     wishes = db.query(Wish).filter(Wish.owner_id == user_id).all()
-
-#     def _status_to_str(s):
-#         # Handle SQLAlchemy Enum-like objects or plain strings
-#         if s is None:
-#             return "unknown"
-#         if hasattr(s, "name"):
-#             return s.name
-#         if hasattr(s, "value"):
-#             return str(s.value)
-#         return str(s)
-
-#     return {
-#         "wishes": [
-#             {
-#                 "id": w.id,
-#                 "title": w.title,
-#                 "status": _status_to_str(w.status),
-#                 "deleted": bool(getattr(w, "deleted", False))
-#             }
-#             for w in wishes
-#         ]
-#     }
-
 @app.post("/api/wishes/plan")
 def api_get_plan(
     req: PlanRequest,
@@ -716,8 +667,10 @@ def api_get_plan(
         # token was valid but user row missing — treat as server error
         raise HTTPException(status_code=500, detail="Authenticated user record not found")
         # 1) Call AI
-    out = ai.get_plan_from_chatgpt(req.wish, client, model=MODEL)
 
+    print("WISH AND CONTEXT" + req.wish + " CTX: " + req.context)
+    out = ai.get_plan_from_chatgpt(req.wish, req.context, client, model=MODEL)
+    print("OUT RAW:\n" + json.dumps(out, indent=2))
     # Defensive JSON parsing if AI returns a JSON string
     if isinstance(out, str):
         try:
@@ -920,6 +873,77 @@ def edit_task(wish_id: str, task_id: str, payload: TaskEdit, db: Session = Depen
     saved = _persist_wish_phases(db, wish, phases)
     return {"ok": True, "wish": {"id": saved.id, "phases": saved.phases}}
 
+@app.post("/api/admin/login")
+def admin_login(
+	body: AdminLoginBody,
+	response: Response,
+	db: Session = Depends(get_db),
+):
+	user = db.query(User).filter(User.email == body.email).first()
+	if not user:
+		raise HTTPException(status_code=401, detail="Invalid credentials")
+
+	# require admin
+	if getattr(user, "role", None) != "admin":
+		raise HTTPException(status_code=403, detail="Not an admin")
+
+	if not user.password_hash or not verify_password(body.password, user.password_hash):
+		raise HTTPException(status_code=401, detail="Invalid credentials")
+
+	token = create_token_for_user(user.id)
+	set_auth_cookie(response, token)
+
+	return {"ok": True}
+
+@app.post("/api/users/email")
+def attach_email_to_user(
+	body: AttachEmailBody,
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	"""
+	Attach an email address to the authenticated user.
+	- Token required
+	- Overwrites existing email if present
+	- Does NOT change tier or create a new user
+	"""
+
+	email = body.email.strip().lower()
+	if not email:
+		raise HTTPException(status_code=400, detail="Email is required")
+
+	# Optional: prevent attaching an email already used by another user
+	existing = db.query(User).filter(User.email == email).first()
+	if existing and existing.id != current_user.id:
+		raise HTTPException(status_code=409, detail="Email already in use")
+
+	current_user.email = email
+	db.add(current_user)
+	db.commit()
+	db.refresh(current_user)
+
+	return {
+		"ok": True,
+		"user_id": current_user.id,
+		"email": current_user.email,
+	}
+
+
+@app.get("/api/admin/metrics")
+def admin_metrics(
+	current_user: User = Depends(get_current_user),
+	db: Session = Depends(get_db),
+):
+	if getattr(current_user, "role", None) != "admin":
+		raise HTTPException(status_code=403, detail="Admin access required")
+
+	wish_count = db.query(Wish).count()
+
+	return {
+		"wish_count": wish_count
+	}
+
+
 @app.get("/api/whoami")
 def whoami(current_user: User = Depends(get_current_user)):
     return {"user_id": current_user.id}
@@ -927,3 +951,4 @@ def whoami(current_user: User = Depends(get_current_user)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+

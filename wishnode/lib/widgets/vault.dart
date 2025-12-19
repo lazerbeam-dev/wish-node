@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:wishnode/ui/pallet.dart';
 import 'item_card.dart';
 
 class Vault extends StatelessWidget {
@@ -14,9 +15,9 @@ class Vault extends StatelessWidget {
 	@override
 	Widget build(BuildContext context) {
 		return Scaffold(
-			backgroundColor: const Color(0xFF0F1115),
+			backgroundColor: Palette.card,
 			appBar: AppBar(
-				backgroundColor: Colors.black,
+				backgroundColor: Palette.darkest,
 				leading: IconButton(
 					icon: const Icon(Icons.arrow_back, color: Colors.white),
 					onPressed: () => Navigator.pop(context),

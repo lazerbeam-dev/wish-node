@@ -1,6 +1,7 @@
 // lib/wishnode_api.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+
 import 'widgets/wishpath_model.dart';
 import 'models/wish_models.dart';
 
@@ -179,7 +180,7 @@ class ApiException implements Exception {
 // -------------------------------------------------------------
 
 class WishnodeApi {
-  final String baseUrl = 'http://localhost:8000';
+  final String baseUrl = 'http://localhost:8000';//'https://api.wishnode.com';//;
   final Map<String, String> defaultHeaders;
 
   // token (JWT) that will be appended to Authorization header when present
@@ -245,6 +246,25 @@ class WishnodeApi {
     return {};
   }
 
+  Future<Map<String, dynamic>> attachEmail(String email) async {
+    final body = json.encode({
+      'email': email,
+    });
+
+    final r = await http.post(
+      Uri.parse('$baseUrl/api/users/email'),
+      headers: _buildHeaders(),
+      body: body,
+    );
+
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return json.decode(r.body) as Map<String, dynamic>;
+    }
+
+    _handleError(r);
+    return {};
+  }
+
   Future<Map<String, dynamic>> whoAmI() async {
     final r = await http.get(
       Uri.parse('$baseUrl/api/whoami'),
@@ -276,7 +296,7 @@ class WishnodeApi {
   }
 
   /// Generate a plan on the backend. Sends Authorization header automatically.
-  Future<String> generatePlan(String wish, {String model = "gpt-4o-mini"}) async {
+  Future<String> generatePlan(String wish, {String context = "", String model = "gpt-4o-mini"}) async {
     if (_token == null || _token!.isEmpty) {
       throw Exception("Authentication token not set. Call setToken(...) or createAnon() first.");
     }
@@ -285,6 +305,7 @@ class WishnodeApi {
     final body = jsonEncode({
       'wish': wish,
       'model': model,
+      'context' : context
       // note: server currently requires token auth; no owner_id needed
     });
 
@@ -308,7 +329,11 @@ class WishnodeApi {
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         return resp.body;
-      } else {
+      } 
+        else if(resp.statusCode == 403){
+          return "MAXED_OUT";
+        }
+      else {
         String detail = 'Plan generation failed (${resp.statusCode})';
         try {
           final Map<String, dynamic> j = jsonDecode(resp.body);
@@ -419,21 +444,31 @@ class WishnodeApi {
     _handleError(r);
   }
 
-  Future<void> addTask(String wishId, String phaseId, String newTitle, bool newRepeat) async {
-    final body = json.encode({
-      'title': newTitle,
-      'repeat': newRepeat,
-    });
+  Future<Map<String, dynamic>> addTask(
+	String wishId,
+	String phaseId,
+	String newTitle,
+	bool newRepeat,
+) async {
+	final body = json.encode({
+		'title': newTitle,
+		'repeat': newRepeat,
+	});
 
-    final r = await http.post(
-      Uri.parse('$baseUrl/api/wishes/$wishId/phases/$phaseId/tasks'),
-      headers: _buildHeaders(),
-      body: body,
-    );
+	final r = await http.post(
+		Uri.parse('$baseUrl/api/wishes/$wishId/phases/$phaseId/tasks'),
+		headers: _buildHeaders(),
+		body: body,
+	);
 
-    if (r.statusCode >= 200 && r.statusCode < 300) return;
-    _handleError(r);
-  }
+	if (r.statusCode >= 200 && r.statusCode < 300) {
+		return json.decode(r.body) as Map<String, dynamic>;
+	}
+
+	_handleError(r);
+	throw Exception('addTask failed');
+}
+
 
   // -----------------------------
   // Vault
@@ -442,13 +477,13 @@ class WishnodeApi {
     Future<List<ItemOut>> getVault() async {
     final uri = Uri.parse('$baseUrl/api/vault');   // no query param
     final headers = _buildHeaders({'Accept': 'application/json'});
-    print('[WishnodeApi] getVault -> GET $uri headers: $headers');
+    //print('[WishnodeApi] getVault -> GET $uri headers: $headers');
 
     final r = await http.get(uri, headers: headers);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final body = json.decode(r.body);
       final list = (body['items'] as List?) ?? [];
-      print('[WishnodeApi] getVault: ITEMS RAW: ${json.encode(list)}');
+      //print('[WishnodeApi] getVault: ITEMS RAW: ${json.encode(list)}');
       return list.map<ItemOut>((e) {
         // defensively handle missing keys
         final map = e as Map<String, dynamic>;
