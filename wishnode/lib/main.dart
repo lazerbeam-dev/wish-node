@@ -88,6 +88,175 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     super.dispose();
   }
 
+  Widget _buildMobileLayout() {
+  return Scaffold(
+    drawer: Drawer(
+      child: SidebarDrawer(
+        key: _sidebarKey,
+        userId: _userId ?? '',
+        initiallyOpen: false,
+        onOpenWish: (parsed) {
+          setState(() => _wish = parsed);
+          Navigator.of(context).pop(); // close drawer
+        },
+        onShowWishInput: _showPanel,
+        onHideWishInput: _hidePanel,
+        onDeleteWish: _handleDeleteWish,
+      ),
+    ),
+    body: SafeArea(
+      child: Center(
+        child: Text(
+          'Mobile layout placeholder',
+          style: TextStyle(color: Palette.ourWhite),
+        ),
+      ),
+    ),
+  );
+}
+
+
+  Widget _buildDesktopLayout() {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // --- Fullscreen map background ---
+          Positioned.fill(
+            child: Container(
+              color: Palette.darkest,
+              child: (_wish == null)
+                  ? Center(
+                      child: Text(
+                        'Ask for something and see the path appear',
+                        style: TextStyle(color: Palette.dampTitles),
+                      ),
+                    )
+                  : WishNodeMap(
+                      key: ValueKey(_wish!.id),
+                      wish: _wish!,
+                      userId: _userId ?? '',
+                      onCompleteTask: (wishId, taskId) =>
+                          _handleCompleteTask(wishId, taskId),
+                      onRemoveTask: (wishId, taskId) =>
+                          _handleRemoveTask(wishId, taskId),
+                      onEditTask: (wishId, taskId, newTitle, newRepeat) =>
+                          _handleEditTask(wishId, taskId, newTitle, newRepeat),
+                      onAddTask: (wishId, phaseId, newTitle, newRepeat) =>
+                          _handleAddTask(wishId, phaseId, newTitle, newRepeat),
+                      onUncompleteTask: (wishId, taskId) =>
+                          _handleUncompleteTask(wishId, taskId),
+                      onWishCompleted: () => _handleWishComplete(),
+                      onAddTaskCommitted: (task) {
+                      setState(() {
+                        final phase = _wish?.phases.firstWhere((p) => p.id == task.phaseId);
+                        if (phase == null) return;
+                        phase.tasks.add(task);
+                      });
+},
+                    ),
+            ),
+          ),
+
+          // --- Sidebar overlay (left) ---
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 260,
+            child: _fetchingUser
+                ? Container(
+                    color: Palette.card,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(Palette.ourWhite),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'Connecting...',
+                            style: TextStyle(color: Palette.dampTitles),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : (_userId != null
+                    ? SidebarDrawer(
+                        key: _sidebarKey,
+                        userId: _userId!,
+                        initiallyOpen: true,
+                        onOpenWish: (WishModel parsed) {
+                          print("SET WISH:" + parsed.title);
+                          //print(parsed.phases.singleWhere((p) => p.tasks.firstWhere((t) => t.repeatedAmount !> 0).repeatedAmount != 0));
+                          setState(() {
+                            _wish = parsed;
+                          });
+                        },
+                        onShowWishInput: _showPanel,
+                        onHideWishInput: _hidePanel,
+                        onDeleteWish: (wishId) => _handleDeleteWish(wishId),
+                      )
+                    : Container(
+                        color: Palette.card,
+                        padding: EdgeInsets.all(12),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Sidebar failed to initialize',
+                              style: TextStyle(color: Palette.ourWhite),
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: _fetchOrCreateAnonUser,
+                              child: Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      )),
+          ),
+
+          // --- Centered control panel (card + inner section) ---
+          Positioned(
+            left: 260 + 12,
+            right: 28,
+            top: 28,
+            child: Visibility(
+              visible: _panelVisible,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Palette.card,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                padding: EdgeInsets.all(18),
+                child: GoalInputSection(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  loading: _loading,
+                  onSubmitted: _onPlanPressed,
+                  onClose: _hidePanel,
+                ),
+              ),
+            ),
+          ),
+
+          // --- Item popup (bottom center) ---
+          // NOTE: ItemPopup contains AnimatedPositioned so it must be a direct child of this Stack.
+          ItemPopup(key: _itemPopupKey),
+        ],
+      ),
+    );
+  }
+
+
   void _showPanel() {
     _setPanelVisible(true);
   }
@@ -457,143 +626,18 @@ class _WishnodeHomeState extends State<WishnodeHome> {
 
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          // --- Fullscreen map background ---
-          Positioned.fill(
-            child: Container(
-              color: Palette.darkest,
-              child: (_wish == null)
-                  ? Center(
-                      child: Text(
-                        'Ask for something and see the path appear',
-                        style: TextStyle(color: Palette.dampTitles),
-                      ),
-                    )
-                  : WishNodeMap(
-                      key: ValueKey(_wish!.id),
-                      wish: _wish!,
-                      userId: _userId ?? '',
-                      onCompleteTask: (wishId, taskId) =>
-                          _handleCompleteTask(wishId, taskId),
-                      onRemoveTask: (wishId, taskId) =>
-                          _handleRemoveTask(wishId, taskId),
-                      onEditTask: (wishId, taskId, newTitle, newRepeat) =>
-                          _handleEditTask(wishId, taskId, newTitle, newRepeat),
-                      onAddTask: (wishId, phaseId, newTitle, newRepeat) =>
-                          _handleAddTask(wishId, phaseId, newTitle, newRepeat),
-                      onUncompleteTask: (wishId, taskId) =>
-                          _handleUncompleteTask(wishId, taskId),
-                      onWishCompleted: () => _handleWishComplete(),
-                      onAddTaskCommitted: (task) {
-                      setState(() {
-                        final phase = _wish?.phases.firstWhere((p) => p.id == task.phaseId);
-                        if (phase == null) return;
-                        phase.tasks.add(task);
-                      });
-},
-                    ),
-            ),
-          ),
+Widget build(BuildContext context) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isMobile = constraints.maxWidth < 768;
 
-          // --- Sidebar overlay (left) ---
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: 260,
-            child: _fetchingUser
-                ? Container(
-                    color: Palette.card,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(Palette.ourWhite),
-                            ),
-                          ),
-                          SizedBox(height: 12),
-                          Text(
-                            'Connecting...',
-                            style: TextStyle(color: Palette.dampTitles),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : (_userId != null
-                    ? SidebarDrawer(
-                        key: _sidebarKey,
-                        userId: _userId!,
-                        initiallyOpen: true,
-                        onOpenWish: (WishModel parsed) {
-                          print("SET WISH:" + parsed.title);
-                          //print(parsed.phases.singleWhere((p) => p.tasks.firstWhere((t) => t.repeatedAmount !> 0).repeatedAmount != 0));
-                          setState(() {
-                            _wish = parsed;
-                          });
-                        },
-                        onShowWishInput: _showPanel,
-                        onHideWishInput: _hidePanel,
-                        onDeleteWish: (wishId) => _handleDeleteWish(wishId),
-                      )
-                    : Container(
-                        color: Palette.card,
-                        padding: EdgeInsets.all(12),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Sidebar failed to initialize',
-                              style: TextStyle(color: Palette.ourWhite),
-                              textAlign: TextAlign.center,
-                            ),
-                            SizedBox(height: 8),
-                            ElevatedButton(
-                              onPressed: _fetchOrCreateAnonUser,
-                              child: Text('Retry'),
-                            ),
-                          ],
-                        ),
-                      )),
-          ),
+      if (isMobile) {
+        return _buildMobileLayout();
+      } else {
+        return _buildDesktopLayout();
+      }
+    },
+  );
+}
 
-          // --- Centered control panel (card + inner section) ---
-          Positioned(
-            left: 260 + 12,
-            right: 28,
-            top: 28,
-            child: Visibility(
-              visible: _panelVisible,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Palette.card,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                padding: EdgeInsets.all(18),
-                child: GoalInputSection(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  loading: _loading,
-                  onSubmitted: _onPlanPressed,
-                  onClose: _hidePanel,
-                ),
-              ),
-            ),
-          ),
-
-          // --- Item popup (bottom center) ---
-          // NOTE: ItemPopup contains AnimatedPositioned so it must be a direct child of this Stack.
-          ItemPopup(key: _itemPopupKey),
-        ],
-      ),
-    );
-  }
 }

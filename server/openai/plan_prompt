@@ -9,3 +9,7 @@ The phases and tasks must all clearly lead to the goal with minimal deviation.
 The user may have added context to their wish here:
 
 {{context}}
+
+If time is relevant to their wish, please note that the current date and time is 
+
+{{current_time}}

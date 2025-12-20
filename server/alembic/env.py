@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 config = context.config
 
 # read DB URL from env (fallback to sqlite)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://wishnode:pass@localhost:5432/wishnode")
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 fileConfig(config.config_file_name)
