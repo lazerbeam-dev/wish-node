@@ -7,33 +7,85 @@ class RepeatTaskService {
 
 	RepeatTaskService({required this.defaultCooldown});
 
+	// ─────────────────────────────────────────────
+	// Logging helper (single switch)
+	// ─────────────────────────────────────────────
+	void _log(String msg) {
+		const bool enabled = false; // set to false to silence logs
+		if (enabled) {
+			// ignore: avoid_print
+			print('[RepeatTaskService] $msg');
+		}
+	}
+
+	// ─────────────────────────────────────────────
+	// Lifecycle
+	// ─────────────────────────────────────────────
 	void initForTask(String taskId, {int initialCount = 0}) {
+		final existed = _counts.containsKey(taskId);
+
 		_counts.putIfAbsent(taskId, () => initialCount);
 		_nextAvailable.putIfAbsent(taskId, () => null);
+
+		_log(
+			'initForTask($taskId) '
+			'existed=$existed '
+			'count=${_counts[taskId]} '
+			'next=${_nextAvailable[taskId]}'
+		);
 	}
 
 	void removeTask(String taskId) {
+		_log('removeTask($taskId)');
 		_counts.remove(taskId);
 		_nextAvailable.remove(taskId);
 	}
 
-	bool isDue(String taskId) {
-		final next = _nextAvailable[taskId];
-		if (next == null) return true;
-		return DateTime.now().isAfter(next) || DateTime.now().isAtSameMomentAs(next);
-	}
-
-	void applyCompletion(String taskId) {
-		_counts[taskId] = (_counts[taskId] ?? 0) + 1;
-		_nextAvailable[taskId] = DateTime.now().add(defaultCooldown);
-	}
-
-	int repeatCount(String taskId) => _counts[taskId] ?? 0;
-
-	DateTime? nextAvailableAt(String taskId) => _nextAvailable[taskId];
-
 	void reset(String taskId) {
+		_log('reset($taskId)');
 		_counts[taskId] = 0;
 		_nextAvailable[taskId] = null;
 	}
+
+	// ─────────────────────────────────────────────
+	// Core logic
+	// ─────────────────────────────────────────────
+	bool isDue(String taskId) {
+		final now = DateTime.now();
+		final next = _nextAvailable[taskId];
+
+		final due = next == null ||
+			now.isAfter(next) ||
+			now.isAtSameMomentAs(next);
+
+		_log(
+			'isDue($taskId) '
+			'now=$now '
+			'next=$next '
+			'due=$due'
+		);
+
+		return due;
+	}
+
+	void applyCompletion(String taskId) {
+		final now = DateTime.now();
+		final next = now.add(defaultCooldown);
+
+		_counts[taskId] = (_counts[taskId] ?? 0) + 1;
+		_nextAvailable[taskId] = next;
+
+		_log(
+			'applyCompletion($taskId) '
+			'count=${_counts[taskId]} '
+			'nextAvailable=$next'
+		);
+	}
+
+	// ─────────────────────────────────────────────
+	// Accessors
+	// ─────────────────────────────────────────────
+	int repeatCount(String taskId) => _counts[taskId] ?? 0;
+
+	DateTime? nextAvailableAt(String taskId) => _nextAvailable[taskId];
 }

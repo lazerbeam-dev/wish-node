@@ -668,9 +668,9 @@ def api_get_plan(
         raise HTTPException(status_code=500, detail="Authenticated user record not found")
         # 1) Call AI
 
-    print("WISH AND CONTEXT" + req.wish + " CTX: " + req.context)
+    #print("WISH AND CONTEXT" + req.wish + " CTX: " + req.context)
     out = ai.get_plan_from_chatgpt(req.wish, req.context, client, model=MODEL)
-    print("OUT RAW:\n" + json.dumps(out, indent=2))
+    #print("OUT RAW:\n" + json.dumps(out, indent=2))
     # Defensive JSON parsing if AI returns a JSON string
     if isinstance(out, str):
         try:

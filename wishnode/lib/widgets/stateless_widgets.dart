@@ -81,8 +81,8 @@ class AddTaskButton extends StatelessWidget {
     return GestureDetector(
       onTap: onPressed,
       child: Container(
-        width: 58,
-        height: 58,
+        width: 38,
+        height: 38,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: LinearGradient(

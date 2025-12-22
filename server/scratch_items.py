@@ -49,7 +49,6 @@ def main():
 
     for ctx in examples:
         print("\n=== Context ===")
-        print(json.dumps(ctx, indent=2))
         try:
             res = get_item_from_chatgpt(ctx, client, model="gpt-4o-mini", max_tokens=600)
             print("\n--- RAW ASSISTANT OUTPUT ---")

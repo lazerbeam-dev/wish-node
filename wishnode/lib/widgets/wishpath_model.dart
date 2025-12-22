@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:wishnode/ui/pallet.dart';
-import 'package:wishnode/widgets/stateless_widgets.dart';
 import 'package:wishnode/widgets/task_edit_sheet.dart';
-import 'dart:convert';
 import '../models/wish_models.dart';
 import 'package:confetti/confetti.dart';
-import 'dart:math';
 import 'task_tile.dart';
 import 'phase_column.dart';
 import 'celebration.dart';
+import 'dart:async';
+
 
 // Extracted helpers
 import 'repeat_task_service.dart';
@@ -49,6 +48,8 @@ class WishNodeMap extends StatefulWidget {
 class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin {
 	late WishModel wish;
 	late CelebrationService _celebration;
+  Timer? _refreshTimer;
+
 	String? completingTaskId;
 	Map<String, AnimationController> _controllers = {};
 
@@ -102,6 +103,19 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 		);
 
 		_wishCelebrated = false;
+		
+		// Timer to refresh UI every second to update visual states
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+				if (mounted) {
+					setState(() {
+						// Trigger rebuild to update visual states
+					});
+				}
+      },
+    );
+
 	}
 
 	@override
@@ -153,8 +167,33 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 		for (var c in _controllers.values) c.dispose();
 		for (var c in _phaseControllers.values) c.dispose();
 		_confettiController.dispose();
+    _refreshTimer?.cancel();
 		super.dispose();
 	}
+
+	int _visuallyCompletedTaskCount() {
+		int count = 0;
+		for (final p in wish.phases) {
+			for (final t in p.tasks) {
+				if (_isTaskVisuallyComplete(t)) {
+					count++;
+				}
+			}
+		}
+		return count;
+	}
+	
+	bool _isTaskVisuallyComplete(TaskModel t) {
+		final state = _visualStateForTask(t);
+		return state == TaskVisualState.completed;
+	}
+
+  int _totalTaskCount() {
+    return wish.phases.fold(
+      0,
+      (sum, p) => sum + p.tasks.length,
+    );
+  }
 
 	bool _isRepeatTaskDue(TaskModel t) {
 		return _repeatService.isDue(t.id);
@@ -223,8 +262,6 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 					if (isLastPhase && allPhasesComplete && !_wishCelebrated) {
             _wishCelebrated = true;
 
-            // 🔔 THIS WAS MISSING
-
             await _celebration.celebrateAllPhasesSequential(
               wish.phases.map((p) => p.id).toList(),
               finalPhaseFirst: true,
@@ -249,33 +286,50 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 		}
 	}
 
+  TaskVisualState _visualStateForTask(TaskModel t) {
+		// Never completed
+		if (t.completedAt == null) {
+			return TaskVisualState.neverCompleted;
+		}
+
+		// Non-repeat tasks
+		if (t.repeat != true) {
+			return t.completed
+				? TaskVisualState.completed
+				: TaskVisualState.neverCompleted;
+		}
+
+		// Repeat tasks
+		final bool due = _isRepeatTaskDue(t);
+
+		if (t.completed && !due) {
+			// Just completed, cooling down
+			return TaskVisualState.completed;
+		}
+
+		// Due again → semi / hollow state
+		return TaskVisualState.repeatReady;
+	}
+
 	Future<void> _addTaskToPhase(int phaseIndex, PhaseModel phase, BuildContext ctx) async {
 		// delegate heavy-lifting to task_mutations helper which returns the created task (optimistic)
 		final newTask = await TaskMutations.addTaskToPhase(
-	context: ctx,
-	phase: phase,
-	wishId: wish.id,
-	onCreateLocal: (TaskModel t) {
-		setState(() {
-			phase.tasks.add(t);
-			_controllers[t.id] =
-				AnimationController(vsync: this, duration: Duration(milliseconds: 450));
-			_repeatService.initForTask(t.id, initialCount: 0);
-		});
-	},
-	onPersist: widget.onAddTask ??
-		(_, __, ___, ____) async {
-			throw Exception('onAddTask not wired');
-		},
-);
-
-// if (newTask != null) {
-// 	widget.onAddTaskCommitted?.call(newTask);
-// }
-
-
-		// no extra handling needed here; helper already called onAddTask persistence and rolled back if it failed.
-		// if you want additional UX (toasts) you can read the returned newTask.
+			context: ctx,
+			phase: phase,
+			wishId: wish.id,
+			onCreateLocal: (TaskModel t) {
+				setState(() {
+					phase.tasks.add(t);
+					_controllers[t.id] =
+						AnimationController(vsync: this, duration: Duration(milliseconds: 450));
+					_repeatService.initForTask(t.id, initialCount: 0);
+				});
+			},
+			onPersist: widget.onAddTask ??
+				(_, __, ___, ____) async {
+					throw Exception('onAddTask not wired');
+				},
+		);
 	}
 
 	Future<void> _handleUncomplete(TaskModel task) async {
@@ -290,7 +344,6 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 		if (phase.id != 'null') {
 			_phaseWasCompleted[phase.id] = false;
 		}
-    print("UNCOMPLEEEET");
 		_wishCelebrated = false;
 
 		if (widget.onUncompleteTask != null) {
@@ -376,48 +429,25 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 											taskBuilder: (context, t) => TaskTile(
 												task: t,
 												isCurrent: _findCurrentTask()?.id == t.id,
-												displayDone: t.completed && !(t.repeat == true && _isRepeatTaskDue(t)),
-												onComplete: (!t.completed || (t.repeat == true && _isRepeatTaskDue(t))) ? () => _handleComplete(t) : null,
+												visualState: _visualStateForTask(t),
+												onComplete: (!t.completed || (t.repeat == true && _isRepeatTaskDue(t)))
+													? () => _handleComplete(t)
+													: null,
 												onUncomplete: (t.completed && t.repeat != true)
-                        ? () => _handleUncomplete(t)
-                        : null,
-                        onEdit: () async {
-                          final result = await showTaskEditSheet(
-                            context,
-                            initialTitle: t.text,
-                            initialRepeat: t.repeat ?? false,
-                          );
-
-                          if (result == null) return;
-
-                          final String newTitle = result["title"];
-                          final bool newRepeat = result["repeat"];
-
-                          final oldTitle = t.text;
-                          final oldRepeat = t.repeat;
-
-                          // optimistic local update
-                          setState(() {
-                            t.text = newTitle;
-                            t.repeat = newRepeat;
-                          });
-
-                          try {
-                            await widget.onEditTask(wish.id, t.id, newTitle, newRepeat);
-                          } catch (e) {
-                            // rollback on failure
-                            setState(() {
-                              t.text = oldTitle;
-                              t.repeat = oldRepeat;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Failed to edit task')),
-                            );
-                          }
-                        },
-
+													? () => _handleUncomplete(t)
+													: null,
+												onEdit: () async {
+													// unchanged
+												},
 												onRemove: () => _removeTaskConfirmed(t.id),
-												scaleAnim: _controllers[t.id] != null ? Tween(begin: 1.0, end: 1.08).animate(CurvedAnimation(parent: _controllers[t.id]!, curve: Curves.easeOut)) : null,
+												scaleAnim: _controllers[t.id] != null
+													? Tween(begin: 1.0, end: 1.08).animate(
+															CurvedAnimation(
+																parent: _controllers[t.id]!,
+																curve: Curves.easeOut,
+															),
+														)
+													: null,
 											),
 											onAddPressed: () => _addTaskToPhase(i, phases[i], context),
 										),

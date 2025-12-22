@@ -1,6 +1,6 @@
 {
   "name": "string",
-  "core_id": "the core item conceptual id like scepter_of_justice - this should not change between upgrades, even if title changes",
+  "core_id": "the core item conceptual id like scepter_of_justice. Create one for new items. Do not change between upgrades, even if title changes",
   "legendariness": "1-100 how amazing are the achievements that justified the forging of this item",
   "description": "short string",
   "emoji": "the emoji that most closely resembles the item",

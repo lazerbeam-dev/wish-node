@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
+from datetime import datetime, timezone
 
 PLAN_PROMPT_PATH = Path("openai/plan_prompt")
 PLAN_STRUCTURE_PATH = Path("openai/plan_structure.json")
@@ -119,6 +120,14 @@ def get_plan_from_chatgpt(wish: str, context: str, client: Any, model: str = "gp
     or on parse failure:
       { "ok": False, "plan": None, "raw": <assistant text>, "prompt": <final prompt>, "error": <desc> }
     """
+    now = datetime.now(timezone.utc)
+
+    time_date_string = (
+        f"Current date and time (UTC): {now.isoformat()}\n"
+        f"Current year: {now.year}\n"
+        f"Current month: {now.month}\n"
+        f"Current day: {now.day}\n"
+    )
     prompt_template = _load_file_text(PLAN_PROMPT_PATH)
     structure_text = _load_file_text(PLAN_STRUCTURE_PATH)
     final_prompt = prompt_template
@@ -128,6 +137,11 @@ def get_plan_from_chatgpt(wish: str, context: str, client: Any, model: str = "gp
 
     if "{{wish}}" in final_prompt:
         final_prompt = final_prompt.replace("{{wish}}", wish)
+
+    if "{{current_time}}" in final_prompt:
+        final_prompt = final_prompt.replace("{{current_time}}", time_date_string)
+    
+    
 
     final_prompt = (
         final_prompt
@@ -180,6 +194,15 @@ def get_item_from_chatgpt(
     """
     Generate an item (or item upgrade) via ChatGPT.
 
+    Context should include:
+    - wish_text: the user's wish
+    - phase_title: current phase
+    - task_text: the task being completed
+    - seed: random seed for consistency
+    - existing_items: list of existing items with core_id, title, description, legendariness, tags
+    - at_item_cap: (optional) boolean indicating if we're at the 3-item limit
+    - available_core_ids: (optional) list of core_ids that can be upgraded
+
     Returns:
       { "ok": True, "item": <parsed JSON>, "raw": <assistant text>, "prompt": <final prompt> }
     or on parse failure:
@@ -187,6 +210,20 @@ def get_item_from_chatgpt(
     """
     prompt_template = _load_file_text(ITEM_PROMPT_PATH)
     structure_text = _load_file_text(ITEM_STRUCTURE_PATH)
+
+    # Handle available_core_ids placeholder in prompt
+    available_core_ids = context.get("available_core_ids", [])
+    if available_core_ids:
+        core_ids_str = ", ".join(f'"{cid}"' for cid in available_core_ids)
+        prompt_template = prompt_template.replace(
+            "{{available_core_ids}}", 
+            f"[{core_ids_str}]"
+        )
+    else:
+        prompt_template = prompt_template.replace(
+            "{{available_core_ids}}", 
+            "N/A (you can create a new item)"
+        )
 
     ctx_json = json.dumps(context, ensure_ascii=False, indent=2)
 

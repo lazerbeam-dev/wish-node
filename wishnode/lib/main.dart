@@ -88,13 +88,14 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     super.dispose();
   }
 
-  Widget _buildMobileLayout() {
+ Widget _buildMobileLayout() {
   return Scaffold(
+    backgroundColor: Palette.darkest,
     drawer: Drawer(
       child: SidebarDrawer(
         key: _sidebarKey,
         userId: _userId ?? '',
-        initiallyOpen: false,
+        initiallyOpen: true,
         onOpenWish: (parsed) {
           setState(() => _wish = parsed);
           Navigator.of(context).pop(); // close drawer
@@ -105,13 +106,148 @@ class _WishnodeHomeState extends State<WishnodeHome> {
       ),
     ),
     body: SafeArea(
-      child: Center(
-        child: Text(
-          'Mobile layout placeholder',
-          style: TextStyle(color: Palette.ourWhite),
-        ),
+      child: Stack(
+        children: [
+          // --- Background (map or empty state) ---
+          Positioned.fill(
+            child: (_wish == null)
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.explore_outlined,
+                          size: 64,
+                          color: Palette.dampTitles.withOpacity(0.5),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Ask for something\nand see the path appear',
+                          style: TextStyle(
+                            color: Palette.dampTitles,
+                            fontSize: 16,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                : WishNodeMap(
+                    key: ValueKey(_wish!.id),
+                    wish: _wish!,
+                    userId: _userId ?? '',
+                    onCompleteTask: (wishId, taskId) =>
+                        _handleCompleteTask(wishId, taskId),
+                    onRemoveTask: (wishId, taskId) =>
+                        _handleRemoveTask(wishId, taskId),
+                    onEditTask: (wishId, taskId, newTitle, newRepeat) =>
+                        _handleEditTask(wishId, taskId, newTitle, newRepeat),
+                    onAddTask: (wishId, phaseId, newTitle, newRepeat) =>
+                        _handleAddTask(wishId, phaseId, newTitle, newRepeat),
+                    onUncompleteTask: (wishId, taskId) =>
+                        _handleUncompleteTask(wishId, taskId),
+                    onWishCompleted: () => _handleWishComplete(),
+                    onAddTaskCommitted: (task) {
+                      setState(() {
+                        final phase = _wish?.phases
+                            .firstWhere((p) => p.id == task.phaseId);
+                        if (phase == null) return;
+                        phase.tasks.add(task);
+                      });
+                    },
+                  ),
+          ),
+
+          // --- Wish input panel (full screen) ---
+          if (_panelVisible)
+            Positioned.fill(
+              child: Container(
+                color: Palette.darkest,
+                padding: EdgeInsets.fromLTRB(16, 72, 16, 16),
+                child: Column(
+                  children: [
+                    SizedBox(height: 24),
+                    Expanded(
+                      child: GoalInputSection(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        loading: _loading,
+                        onSubmitted: _onPlanPressed,
+                        onClose: _hidePanel,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // --- Top bar (ALWAYS ON TOP) ---
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Palette.darkest.withOpacity(0.95),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Builder(
+                    builder: (scaffoldContext) => IconButton(
+                      icon: Icon(Icons.menu, color: Palette.ourWhite),
+                      onPressed: () {
+                        Scaffold.of(scaffoldContext).openDrawer();
+                      },
+                    ),
+                  ),
+                  if (!_panelVisible)
+  Expanded(
+    child: Text(
+      _wish?.title ?? '',
+      style: TextStyle(
+        color: Palette.ourWhite,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+  ),
+
+                ],
+              ),
+            ),
+          ),
+
+          // --- Item popup (bottom center) ---
+          ItemPopup(key: _itemPopupKey),
+        ],
       ),
     ),
+
+    // Floating action button (only when wish input hidden)
+    floatingActionButton: !_panelVisible
+        ? FloatingActionButton.extended(
+            onPressed: _showPanel,
+            backgroundColor: Palette.signatureGreen,
+            icon: Icon(Icons.add, color: Colors.black),
+            label: Text(
+              'New Wish',
+              style: TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          )
+        : null,
   );
 }
 
@@ -266,18 +402,27 @@ class _WishnodeHomeState extends State<WishnodeHome> {
   }
 
   Future<void> _handleDeleteWish(String wishId) async {
-    try {
-      await _apiClient.deleteWish(wishId);
-      // refresh sidebar after successful delete
-      (_sidebarKey.currentState as dynamic)?.refresh();
-    } catch (e, st) {
-      print('[main] deleteWish failed: $e\n$st');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete wish.'))
-      );
-      rethrow;
-    }
-  }
+	try {
+		await _apiClient.deleteWish(wishId);
+
+		setState(() {
+			// 🔑 If the currently open wish was deleted, clear the map
+			if (_wish?.id == wishId) {
+				_wish = null;
+			}
+		});
+
+		// Refresh sidebar after successful delete
+		(_sidebarKey.currentState as dynamic)?.refresh();
+	} catch (e, st) {
+		print('[main] deleteWish failed: $e\n$st');
+		ScaffoldMessenger.of(context).showSnackBar(
+			const SnackBar(content: Text('Failed to delete wish.')),
+		);
+		rethrow;
+	}
+}
+
     Future<void> _clearStoredCredentials() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -297,6 +442,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     setState(() {
       _panelVisible = value;
       _loading = false;
+
     });
     print("setpanelvisible_" + value.toString());
   }

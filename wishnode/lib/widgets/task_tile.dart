@@ -3,10 +3,16 @@ import 'package:flutter/material.dart';
 import '../../ui/pallet.dart';
 import '../../models/wish_models.dart';
 
+enum TaskVisualState {
+	neverCompleted,
+	completed,
+	repeatReady,
+}
+
 class TaskTile extends StatelessWidget {
 	final TaskModel task;
 	final bool isCurrent;
-	final bool displayDone;
+	final TaskVisualState visualState;
 	final VoidCallback? onComplete;
 	final VoidCallback? onEdit;
 	final VoidCallback? onRemove;
@@ -17,7 +23,7 @@ class TaskTile extends StatelessWidget {
 		super.key,
 		required this.task,
 		required this.isCurrent,
-		required this.displayDone,
+		required this.visualState,
 		this.onComplete,
 		this.onEdit,
 		this.onRemove,
@@ -27,52 +33,91 @@ class TaskTile extends StatelessWidget {
 
 	@override
 	Widget build(BuildContext context) {
+		final bool isRepeatTask = task.repeat == true;
+		
+		// Determine display state based on visualState
+		final bool showAsDone = visualState == TaskVisualState.completed;
+		final bool hasEverBeenCompleted = visualState != TaskVisualState.neverCompleted;
+
 		final tile = AnimatedContainer(
 			duration: Duration(milliseconds: 220),
 			padding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
 			decoration: BoxDecoration(
-				color: displayDone ? Palette.card : Palette.darkest.withOpacity(0.02),
-				borderRadius: BorderRadius.circular(10),
-				border: Border.all(
-					color: isCurrent
-						? Palette.signatureGreen.withOpacity(0.9)
-						: Colors.transparent,
-					width: 1.5,
-				),
+				color: Palette.darkest,
 			),
 			child: Row(
 				children: [
 					GestureDetector(
 						onTap: onComplete,
-						child: AnimatedContainer(
-							duration: Duration(milliseconds: 220),
+						child: SizedBox(
 							width: 36,
 							height: 36,
-							decoration: BoxDecoration(
-								shape: BoxShape.circle,
-								gradient: displayDone
-									? LinearGradient(
-											colors: [
-												Palette.signatureGreen.withOpacity(0.9),
-												Palette.signatureGreen.withOpacity(0.6),
-											],
-										)
-									: null,
-								border: Border.all(
-									color: displayDone
-										? Palette.signatureGreen
-										: Palette.dampTitles.withOpacity(0.35),
-								),
-							),
-							child: Center(
-								child: displayDone
-									? Icon(Icons.check, size: 18, color: Colors.black)
-									: Icon(Icons.radio_button_unchecked,
-											size: 18, color: Palette.dampTitles),
-							),
+							child: !hasEverBeenCompleted
+								// A) NEVER COMPLETED
+								? AnimatedContainer(
+										duration: Duration(milliseconds: 220),
+										decoration: BoxDecoration(
+											shape: BoxShape.circle,
+											border: Border.all(
+												color: Palette.dampTitles.withOpacity(0.35),
+												width: 2,
+											),
+										),
+										child: Center(
+											child: Icon(
+												Icons.radio_button_unchecked,
+												size: 18,
+												color: Palette.dampTitles,
+											),
+										),
+									)
+								// B) COMPLETED / REPEAT STATES
+								: Stack(
+										alignment: Alignment.center,
+										children: [
+											// OUTER RING
+											AnimatedContainer(
+												duration: Duration(milliseconds: 220),
+												width: 36,
+												height: 36,
+												decoration: BoxDecoration(
+													shape: BoxShape.circle,
+													color: (showAsDone || visualState == TaskVisualState.repeatReady)
+														? Palette.signatureGreen
+														: Colors.transparent,
+													border: Border.all(
+														color: Palette.signatureGreen,
+														width: 2,
+													),
+												),
+											),
+
+											// INNER STATE
+											AnimatedContainer(
+												duration: Duration(milliseconds: 220),
+												width: 18,
+												height: 18,
+												decoration: BoxDecoration(
+													shape: BoxShape.circle,
+													color: showAsDone
+														? Palette.signatureGreen.withOpacity(0.85)
+														: Palette.card,
+												),
+												child: showAsDone
+													? Icon(
+															Icons.check,
+															size: 14,
+															color: Colors.black,
+														)
+													: null,
+											),
+										],
+									),
 						),
 					),
+
 					const SizedBox(width: 12),
+
 					Expanded(
 						child: Column(
 							crossAxisAlignment: CrossAxisAlignment.start,
@@ -88,34 +133,26 @@ class TaskTile extends StatelessWidget {
 								const SizedBox(height: 4),
 								Row(
 									children: [
-										if (task.repeat == true) ...[
+										if (isRepeatTask) ...[
 											Icon(Icons.repeat,
 												size: 14, color: Palette.accent),
 											const SizedBox(width: 6),
 											AnimatedSwitcher(
-	duration: Duration(milliseconds: 260),
-	transitionBuilder: (child, anim) {
-		return ScaleTransition(
-			scale: Tween(begin: 0.85, end: 1.0).animate(
-				CurvedAnimation(parent: anim, curve: Curves.easeOutBack),
-			),
-			child: FadeTransition(opacity: anim, child: child),
-		);
-	},
-	child: Text(
-		task.repeatedAmount != null && task.repeatedAmount! > 0
-			? 'repeat ×${task.repeatedAmount}'
-			: 'repeat',
-		key: ValueKey(task.repeatedAmount),
-		style: TextStyle(
-			color: Palette.dampTitles,
-			fontSize: 12,
-		),
-	),
-),
-
+												duration: Duration(milliseconds: 260),
+												child: Text(
+													task.repeatedAmount != null &&
+															task.repeatedAmount! > 0
+														? 'repeat ×${task.repeatedAmount}'
+														: 'repeat',
+													key: ValueKey(task.repeatedAmount),
+													style: TextStyle(
+														color: Palette.dampTitles,
+														fontSize: 12,
+													),
+												),
+											),
 										],
-										if (displayDone) ...[
+										if (showAsDone) ...[
 											const SizedBox(width: 8),
 											Text(
 												'done',
@@ -131,25 +168,24 @@ class TaskTile extends StatelessWidget {
 							],
 						),
 					),
+
 					IconButton(
 						icon: Icon(Icons.more_horiz, color: Palette.dampTitles),
 						onPressed: () {
 							showModalBottomSheet(
 								context: context,
-								backgroundColor: Palette.card,
+								backgroundColor: Palette.darkest,
 								builder: (_) {
 									return Padding(
-										padding: const EdgeInsets.all(12.0),
+										padding: EdgeInsets.all(12),
 										child: Column(
 											mainAxisSize: MainAxisSize.min,
 											children: [
 												ListTile(
-													leading:
-														Icon(Icons.edit, color: Palette.ourWhite),
-													title: Text(
-														'Edit task',
-														style: TextStyle(color: Colors.white),
-													),
+													leading: Icon(Icons.edit,
+														color: Palette.ourWhite),
+													title: Text('Edit task',
+														style: TextStyle(color: Colors.white)),
 													onTap: () {
 														Navigator.of(context).pop();
 														onEdit?.call();
@@ -161,8 +197,7 @@ class TaskTile extends StatelessWidget {
 															color: Palette.ourWhite),
 														title: Text(
 															'Mark as incomplete',
-															style:
-																TextStyle(color: Colors.white),
+															style: TextStyle(color: Colors.white),
 														),
 														onTap: () {
 															Navigator.of(context).pop();
@@ -172,11 +207,8 @@ class TaskTile extends StatelessWidget {
 												ListTile(
 													leading: Icon(Icons.delete,
 														color: Palette.ourWhite),
-													title: Text(
-														'Remove',
-														style:
-															TextStyle(color: Palette.ourWhite),
-													),
+													title: Text('Remove',
+														style: TextStyle(color: Palette.ourWhite)),
 													onTap: () {
 														Navigator.of(context).pop();
 														onRemove?.call();

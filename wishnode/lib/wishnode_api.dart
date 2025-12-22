@@ -151,7 +151,7 @@ class ItemOut {
       originWishId: j['origin_wish_id'],
       title: j['title'],
       emoji: j['emoji'],
-      emojiAccent: j['emoji_accent'],
+      emojiAccent: j['emoji_accent'] ?? '',
       legendariness: j['legendariness'] ?? 0,
       description: j['description'] ?? '',
       createdAt: j['created_at'] != null

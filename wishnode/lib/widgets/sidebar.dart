@@ -340,7 +340,7 @@ child: LayoutBuilder(
                       padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                       child: Text('VAULT',
                           style: TextStyle(
-                            color: Palette.vaultButton,
+                            color: Palette.darkest,
                             fontWeight: FontWeight.bold,
                           )),
                     ),
@@ -396,7 +396,17 @@ child: LayoutBuilder(
                     ],
                   ),
                   child: TextButton(
-                    onPressed: widget.onShowWishInput,
+                    onPressed: () {
+                      // Show wish input in main content
+                      widget.onShowWishInput();
+
+                      // If we're inside a Drawer (mobile), close it
+                      final scaffold = Scaffold.maybeOf(context);
+                      if (scaffold != null && scaffold.hasDrawer) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                       child: Text('MAKE A WISH',
@@ -426,7 +436,17 @@ child: LayoutBuilder(
             right: 0,
             top: 12,
             child: GestureDetector(
-              onTap: _toggle,
+              onTap: () {
+    final scaffold = Scaffold.maybeOf(context);
+
+    if (scaffold != null && scaffold.hasDrawer) {
+      // Mobile: close the drawer
+      Navigator.of(context).pop();
+    } else {
+      // Desktop: collapse/expand sidebar
+      _toggle();
+    }
+  },
               child: Container(
                 width: compactWidth,
                 height: 44,
