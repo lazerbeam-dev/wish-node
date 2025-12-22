@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:wishnode/utils/log.dart';
 import 'package:wishnode/widgets/task_edit_sheet.dart';
 import '../models/wish_models.dart';
 
@@ -57,7 +58,7 @@ class TaskMutations {
 		ScaffoldMessenger.of(context).showSnackBar(
 			SnackBar(content: Text('Failed to add task')),
 		);
-		print('onAddTask failed: $e');
+		Log.d('onAddTask failed: $e');
 		return null;
 	}
 }
@@ -80,7 +81,7 @@ class TaskMutations {
 				await onPersistRemove(wish.id, taskId);
 			} catch (e) {
 				// best-effort: log and continue
-				print('onRemoveTask callback failed: $e');
+				Log.d('onRemoveTask callback failed: $e');
 			}
 		}
 	}

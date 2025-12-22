@@ -16,6 +16,7 @@ import 'wishnode_api.dart';
 import 'widgets/stateless_widgets.dart';
 // Add import for the popup widget
 import 'widgets/item_popup.dart';
+import 'utils/log.dart';
 
 const String _kStoredUserIdKey = 'wishnode_anon_user_id';
 const String _kStoredTokenKey = 'wishnode_token';
@@ -27,9 +28,9 @@ Future<void> main() async {
   try {
     final prefs = await SharedPreferences.getInstance();
     storedUserId = prefs.getString(_kStoredUserIdKey);
-    print('[main] loaded stored user id -> ${storedUserId ?? "<null>"}');
+    Log.d('[main] loaded stored user id -> ${storedUserId ?? "<null>"}');
   } catch (e) {
-    print('[main] error reading SharedPreferences: $e');
+    Log.d('[main] error reading SharedPreferences: $e');
   }
 
   runApp(WishnodeApp(initialStoredUserId: storedUserId));
@@ -329,7 +330,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
                         userId: _userId!,
                         initiallyOpen: true,
                         onOpenWish: (WishModel parsed) {
-                          print("SET WISH:" + parsed.title);
+                          Log.d("SET WISH:" + parsed.title);
                           //print(parsed.phases.singleWhere((p) => p.tasks.firstWhere((t) => t.repeatedAmount !> 0).repeatedAmount != 0));
                           setState(() {
                             _wish = parsed;
@@ -415,7 +416,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
 		// Refresh sidebar after successful delete
 		(_sidebarKey.currentState as dynamic)?.refresh();
 	} catch (e, st) {
-		print('[main] deleteWish failed: $e\n$st');
+		Log.d('[main] deleteWish failed: $e\n$st');
 		ScaffoldMessenger.of(context).showSnackBar(
 			const SnackBar(content: Text('Failed to delete wish.')),
 		);
@@ -444,7 +445,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
       _loading = false;
 
     });
-    print("setpanelvisible_" + value.toString());
+    Log.d("setpanelvisible_" + value.toString());
   }
 
   // ---- user id / anon logic ----
@@ -514,12 +515,12 @@ class _WishnodeHomeState extends State<WishnodeHome> {
             return;
           } else {
             // unexpected response — clear stored creds and fallthrough
-            print('[main] whoAmI returned no user_id; clearing stored credentials');
+            Log.d('[main] whoAmI returned no user_id; clearing stored credentials');
             await _clearStoredCredentials();
           }
         } catch (e, st) {
           // whoAmI failed (likely 401). Clear stored creds and continue to createAnon.
-          print('[main] whoAmI validation failed: $e\n$st — clearing stored cred');
+          Log.d('[main] whoAmI validation failed: $e\n$st — clearing stored cred');
           await _clearStoredCredentials();
         }
       }
@@ -545,7 +546,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
       // Ensure sidebar fetches newly-available wishes
       (_sidebarKey.currentState as dynamic)?.refresh();
     } catch (e, st) {
-      print('[main] _fetchOrCreateAnonUser error: $e\n$st');
+      Log.d('[main] _fetchOrCreateAnonUser error: $e\n$st');
       setState(() {
         _userId = null;
         _userFetchError = e.toString();
@@ -638,9 +639,9 @@ class _WishnodeHomeState extends State<WishnodeHome> {
         }
 
         // Optionally print for debugging
-        print('[main] completeTask returned item: $itemData');
+        Log.d('[main] completeTask returned item: $itemData');
       } catch (e, st) {
-        print('[main] error handling completeTask response: $e\n$st');
+        Log.d('[main] error handling completeTask response: $e\n$st');
       }
     }).catchError((error) {
       if (mounted) {
@@ -699,13 +700,13 @@ class _WishnodeHomeState extends State<WishnodeHome> {
 
   Future<void> _handleUncompleteTask(String wishId, String taskId) async {
     try {
-      print("UNCOMPLETE HERE");
+      Log.d("UNCOMPLETE HERE");
       // ask backend to mark the task incomplete (server will clear completed/completed_at)
       await _apiClient.completeTask(wishId, taskId, markIncomplete: true);
       // success -> nothing else to do (keep optimistic UI)
     } catch (e) {
       // bubble error up so WishNodeMap can rollback its optimistic change
-      print('[main] _handleUncompleteTask error: $e');
+      Log.d('[main] _handleUncompleteTask error: $e');
       // Re-throw so the caller (WishNodeMap) catches and handles rollback / snackbar.
       rethrow;
     }
@@ -713,7 +714,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
 
   Future<void> _handleWishComplete() async {
 	// Sidebar owns wish categorisation, so just tell it to refresh
-  print("WE REFRESH");
+  Log.d("WE REFRESH");
 	(_sidebarKey.currentState as dynamic)?.refresh();
 }
 
@@ -766,7 +767,7 @@ class _WishnodeHomeState extends State<WishnodeHome> {
 		newTitle,
 		newRepeat,
 	);
-  print("CREATED: " + json.encode(created));
+  Log.d("CREATED: " + json.encode(created));
   return created["task"]["id"];
 }
 

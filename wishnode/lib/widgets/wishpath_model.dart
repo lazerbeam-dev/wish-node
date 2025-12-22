@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:wishnode/ui/pallet.dart';
+import 'package:wishnode/utils/log.dart';
 import 'package:wishnode/widgets/task_edit_sheet.dart';
 import '../models/wish_models.dart';
 import 'package:confetti/confetti.dart';
@@ -280,7 +281,7 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 				controller.forward(from: 0.0).then((_) => controller.reverse());
 			}
 			ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to complete task')));
-			print('onCompleteTask failed: $e');
+			Log.d('onCompleteTask failed: $e');
 		} finally {
 			setState(() => completingTaskId = null);
 		}
@@ -355,7 +356,7 @@ class _WishNodeMapState extends State<WishNodeMap> with TickerProviderStateMixin
 					task.completedAt = oldCompletedAt;
 				});
 				ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to un-complete task')));
-				print('onUncompleteTask failed: $e');
+				Log.d('onUncompleteTask failed: $e');
 				return;
 			}
 		}

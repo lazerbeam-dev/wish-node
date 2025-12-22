@@ -67,7 +67,7 @@ def main():
             print("No wish id provided. Exiting.")
             return
 
-    print("Using DATABASE_URL =", DATABASE_URL)
+    #print("Using DATABASE_URL =", DATABASE_URL)
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
