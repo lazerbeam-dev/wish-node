@@ -11,7 +11,8 @@ pydantic-settings
 openai
 
 python-jose
-passlib[bcrypt]
+#passlib[bcrypt]
+passlib[argon2]
 
 # optional but recommended utilities
 python-multipart
