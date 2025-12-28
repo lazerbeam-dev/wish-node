@@ -32,3 +32,12 @@ class ItemOut(BaseModel):
     legendariness: int
     tags: List[str]
     created_at: datetime
+
+class FeedbackCreate(BaseModel):
+	text: str
+	path: Optional[str] = None
+	source: Optional[str] = "web"
+
+class FeedbackOut(BaseModel):
+	id: str
+	created_at: str

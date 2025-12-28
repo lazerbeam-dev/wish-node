@@ -4,6 +4,8 @@ import 'dart:js_interop';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart';
 import 'package:wishnode/ui/pallet.dart';
+import 'package:wishnode/widgets/feedback.dart';
+import 'package:wishnode/widgets/login.dart';
 import 'widgets/wishpath_model.dart';
 import 'widgets/goal_input.dart';
 import 'widgets/sidebar.dart';
@@ -28,7 +30,7 @@ Future<void> main() async {
   try {
     final prefs = await SharedPreferences.getInstance();
     storedUserId = prefs.getString(_kStoredUserIdKey);
-    Log.d('[main] loaded stored user id -> ${storedUserId ?? "<null>"}');
+    ('[main] loaded stored user id -> ${storedUserId ?? "<null>"}');
   } catch (e) {
     Log.d('[main] error reading SharedPreferences: $e');
   }
@@ -59,6 +61,8 @@ class WishnodeHome extends StatefulWidget {
 
 class _WishnodeHomeState extends State<WishnodeHome> {
   // static instance for global show/hide calls
+  bool _showLoginWidget = false;
+  bool _showFeedbackWidget = false;
   final GlobalKey _sidebarKey = GlobalKey();
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -75,13 +79,12 @@ class _WishnodeHomeState extends State<WishnodeHome> {
   bool _fetchingUser = true;
   String? _userFetchError;
 
-  @override
-  void initState() {
-    super.initState();
-    _apiClient = api_singleton.wishnodeApi;
-    _fetchOrCreateAnonUser();
-  }
-
+ @override
+void initState() {
+  super.initState();
+  _apiClient = api_singleton.wishnodeApi;
+  _fetchOrCreateAnonUser();
+}
   @override
   void dispose() {
     _controller.dispose();
@@ -104,6 +107,8 @@ class _WishnodeHomeState extends State<WishnodeHome> {
         onShowWishInput: _showPanel,
         onHideWishInput: _hidePanel,
         onDeleteWish: _handleDeleteWish,
+        onLogout: _handleLogout,
+        onShowLogin: _handleShowLogin, // NEW
       ),
     ),
     body: SafeArea(
@@ -339,6 +344,8 @@ class _WishnodeHomeState extends State<WishnodeHome> {
                         onShowWishInput: _showPanel,
                         onHideWishInput: _hidePanel,
                         onDeleteWish: (wishId) => _handleDeleteWish(wishId),
+                        onLogout: _handleLogout,
+                        onShowLogin: _handleShowLogin, // NEW
                       )
                     : Container(
                         color: Palette.card,
@@ -388,11 +395,132 @@ class _WishnodeHomeState extends State<WishnodeHome> {
           // --- Item popup (bottom center) ---
           // NOTE: ItemPopup contains AnimatedPositioned so it must be a direct child of this Stack.
           ItemPopup(key: _itemPopupKey),
+          Positioned(
+          right: 20,
+          bottom: 20,
+          child: FloatingActionButton(
+	heroTag: 'feedback',
+	mini: true,
+	backgroundColor: Palette.card,
+	onPressed: () {
+		setState(() {
+			_showFeedbackWidget = true;
+		});
+	},
+	child: Icon(
+		Icons.feedback_outlined,
+		color: Palette.dampTitles,
+	),
+),
+
+        ),
         ],
       ),
     );
   }
 
+Future<void> _handleLoginSuccess(String userId, String token) async {
+  Log.d('[main] login success: userId=$userId');
+  
+  // Store credentials
+  await _storeUserId(userId);
+  await _storeToken(token);
+  
+  // Set token on API client
+  _apiClient.setToken(token);
+  _showPanel();
+  // Update state
+  setState(() {
+    _userId = userId;
+    _showLoginWidget = false;
+  });
+  
+  // Refresh sidebar
+  (_sidebarKey.currentState as dynamic)?.refresh();
+  
+  // Show success message
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Welcome back!'),
+        backgroundColor: Palette.signatureGreen,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+// NEW: Logout handler
+Future<void> _handleLogout() async {
+  // Show confirmation dialog
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: Palette.card,
+      title: Text('Logout', style: TextStyle(color: Palette.ourWhite)),
+      content: Text(
+        'Are you sure you want to logout?',
+        style: TextStyle(color: Palette.dampTitles),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text('Cancel', style: TextStyle(color: Palette.dampTitles)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text('Logout', style: TextStyle(color: Palette.signatureGreen)),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  try {
+    // Clear stored credentials
+    await _clearStoredCredentials();
+    
+    // Create new anonymous user
+    await _fetchOrCreateAnonUser();
+    
+    // Clear current wish
+    setState(() {
+      _wish = null;
+    });
+    
+    // Refresh sidebar
+    (_sidebarKey.currentState as dynamic)?.refresh();
+    
+    // Show success message
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logged out successfully'),
+          backgroundColor: Palette.signatureGreen,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } catch (e) {
+    Log.d('[main] logout error: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error during logout'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+}
+
+// NEW: Show login handler
+void _handleShowLogin() {
+  setState(() {
+    _showLoginWidget = true;
+  });
+}
 
   void _showPanel() {
     _setPanelVisible(true);
@@ -487,74 +615,95 @@ class _WishnodeHomeState extends State<WishnodeHome> {
     }
   }
 
-    Future<void> _fetchOrCreateAnonUser() async {
-    setState(() {
-      _fetchingUser = true;
-      _userFetchError = null;
-    });
+    // Replace your existing _fetchOrCreateAnonUser in main.dart with this improved version:
 
-    try {
-      final storedToken = await _getStoredToken();
-      final storedId = await _getStoredUserId();
+Future<void> _fetchOrCreateAnonUser() async {
+  setState(() {
+    _fetchingUser = true;
+    _userFetchError = null;
+  });
 
-      // If we have a token, attempt to validate it regardless of storedId.
-      if (storedToken != null && storedToken.isNotEmpty) {
-        _apiClient.setToken(storedToken);
+  try {
+    final storedToken = await _getStoredToken();
+    final storedId = await _getStoredUserId();
+    bool _triedStoredIdWithoutToken = false;
+    // --- PATH 1: token exists → canonical path ---
+    if (storedToken != null && storedToken.isNotEmpty) {
+      Log.d('[main] Found stored token, attempting to resume session');
+      _apiClient.setToken(storedToken);
 
-        try {
-          // Always ask server who this token belongs to
-          final who = await _apiClient.whoAmI();
-          final uid = who['user_id'];
-          if (uid != null && uid is String && uid.isNotEmpty) {
-            // valid token: persist canonical id (if different) and use it
-            await _storeUserId(uid);
-            setState(() => _userId = uid);
+      try {
+        final who = await _apiClient.whoAmI();
+        final uid = who['user_id'];
 
-            // Make sure sidebar fetches wishes now we have valid auth
-            (_sidebarKey.currentState as dynamic)?.refresh();
-            return;
-          } else {
-            // unexpected response — clear stored creds and fallthrough
-            Log.d('[main] whoAmI returned no user_id; clearing stored credentials');
-            await _clearStoredCredentials();
-          }
-        } catch (e, st) {
-          // whoAmI failed (likely 401). Clear stored creds and continue to createAnon.
-          Log.d('[main] whoAmI validation failed: $e\n$st — clearing stored cred');
-          await _clearStoredCredentials();
+        if (uid is String && uid.isNotEmpty) {
+          Log.d('[main] Token valid, user_id=$uid');
+          await _storeUserId(uid);
+          setState(() {
+            _userId = uid;
+            _fetchingUser = false;
+          });
+          (_sidebarKey.currentState as dynamic)?.refresh();
+          return; // Success - exit early
         }
+      } catch (e) {
+        Log.d('[main] Token validation failed: $e');
+        await _clearStoredCredentials();
+        // Continue to next path
       }
-
-      // No valid token — request a new anon identity from server.
-      final createResp = await _apiClient.createAnon();
-      final anonId = createResp['anon_user_id']?.toString();
-      final token = createResp['token']?.toString();
-
-      if (token == null || token.isEmpty) {
-        throw Exception("Server returned no token when creating anon user");
-      }
-      if (anonId == null || anonId.isEmpty) {
-        throw Exception("Server returned no anon_user_id when creating anon user");
-      }
-
-      await _storeToken(token);
-      await _storeUserId(anonId);
-      _apiClient.setToken(token);
-
-      setState(() => _userId = anonId);
-
-      // Ensure sidebar fetches newly-available wishes
-      (_sidebarKey.currentState as dynamic)?.refresh();
-    } catch (e, st) {
-      Log.d('[main] _fetchOrCreateAnonUser error: $e\n$st');
-      setState(() {
-        _userId = null;
-        _userFetchError = e.toString();
-      });
-    } finally {
-      if (mounted) setState(() => _fetchingUser = false);
     }
+
+    // --- PATH 2: NO TOKEN, BUT STORED USER ID EXISTS ---
+    if (storedId != null && storedId.isNotEmpty && !_triedStoredIdWithoutToken) {
+      _triedStoredIdWithoutToken = true;
+
+      Log.d('[main] attempting legacy resume with stored anon id: $storedId');
+
+      setState(() {
+        _userId = storedId;
+        _fetchingUser = false;
+      });
+
+      // Try loading wishes with this ID
+      (_sidebarKey.currentState as dynamic)?.refresh();
+
+      // Give sidebar one frame to respond before creating a new anon
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      return;
+    }
+
+    // --- PATH 3: nothing worked → create new anon ---
+    Log.d('[main] creating new anon user');
+
+    final createResp = await _apiClient.createAnon();
+    final anonId = createResp['anon_user_id']?.toString();
+    final token = createResp['token']?.toString();
+
+    if (anonId == null || token == null || anonId.isEmpty || token.isEmpty) {
+      throw Exception('Invalid createAnon response');
+    }
+
+    await _storeUserId(anonId);
+    await _storeToken(token);
+    _apiClient.setToken(token);
+
+    setState(() {
+      _userId = anonId;
+      _fetchingUser = false;
+    });
+    (_sidebarKey.currentState as dynamic)?.refresh();
+
+  } catch (e, st) {
+    Log.d('[main] _fetchOrCreateAnonUser error: $e\n$st');
+    setState(() {
+      _userId = null;
+      _userFetchError = e.toString();
+      _fetchingUser = false;
+    });
   }
+}
+
 
 
   // ---- wish / plan logic ----
@@ -771,20 +920,59 @@ class _WishnodeHomeState extends State<WishnodeHome> {
   return created["task"]["id"];
 }
 
-
-  @override
+@override
 Widget build(BuildContext context) {
   return LayoutBuilder(
     builder: (context, constraints) {
       final isMobile = constraints.maxWidth < 768;
 
+      Widget mainContent;
       if (isMobile) {
-        return _buildMobileLayout();
+        mainContent = _buildMobileLayout();
       } else {
-        return _buildDesktopLayout();
+        mainContent = _buildDesktopLayout();
       }
+
+      // Wrap with login overlay
+      return Stack(
+        children: [
+          mainContent,
+          
+          // Login widget overlay
+          if (_showLoginWidget)
+            Positioned.fill(
+              child: LoginWidget(
+                api: _apiClient,
+                currentAnonUserId: _userId,
+                onClose: () {
+                  setState(() => _showLoginWidget = false);
+                },
+                onLoginSuccess: _handleLoginSuccess,
+              ),
+            ),
+            if (_showFeedbackWidget)
+              Positioned.fill(
+                child: FeedbackWidget(
+                  onClose: () {
+                    setState(() => _showFeedbackWidget = false);
+                  },
+                  onSubmit: (text) async {
+                    await _apiClient.submitFeedback(text);
+                    setState(() => _showFeedbackWidget = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+  content: Text('Thanks for the feedback!'),
+  backgroundColor: Palette.signatureGreen,
+  behavior: SnackBarBehavior.floating,
+),
+                    );
+                  },
+                ),
+              ),
+
+        ],
+      );
     },
   );
 }
-
 }

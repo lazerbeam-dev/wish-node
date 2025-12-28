@@ -1,6 +1,7 @@
 // lib/wishnode_api.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:wishnode/utils/log.dart';
 
 import 'widgets/wishpath_model.dart';
 import 'models/wish_models.dart';
@@ -180,7 +181,7 @@ class ApiException implements Exception {
 // -------------------------------------------------------------
 
 class WishnodeApi {
-  final String baseUrl = 'http://localhost:8000';//'https://api.wishnode.com';//;
+  final String baseUrl = 'http://localhost:8000';//'https://api.wishnode.com';//////;
   final Map<String, String> defaultHeaders;
 
   // token (JWT) that will be appended to Authorization header when present
@@ -188,7 +189,7 @@ class WishnodeApi {
 
   WishnodeApi({Map<String, String>? defaultHeaders})
       : defaultHeaders = defaultHeaders ?? {'Content-Type': 'application/json'} {
-    print('WishnodeApi created: baseUrl=$baseUrl');
+    Log.d('WishnodeApi created: baseUrl=$baseUrl');
   }
 
   void setToken(String token) {
@@ -198,7 +199,7 @@ class WishnodeApi {
     } else {
       defaultHeaders.remove('Authorization');
     }
-    print('WishnodeApi.setToken: token length=${token.length}');
+    Log.d('WishnodeApi.setToken: token length=${token.length}');
   }
 
   /// Build headers per-request so we can add Authorization dynamically
@@ -234,7 +235,7 @@ class WishnodeApi {
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final j = json.decode(r.body) as Map<String, dynamic>;
       // Expecting { "anon_user_id": "...", "token": "..." }
-      print("resp_from_create_anon: ${r.body}");
+      Log.d("resp_from_create_anon: ${r.body}");
       // convenience: if token present, set it on this client
       final token = j['token'] as String?;
       if (token != null && token.isNotEmpty) {
@@ -271,7 +272,7 @@ class WishnodeApi {
       headers: _buildHeaders(),
     );
     if (r.statusCode >= 200 && r.statusCode < 300) {
-      print("resp_from_whoami: ${r.body}");
+      Log.d("resp_from_whoami: ${r.body}");
       return json.decode(r.body) as Map<String, dynamic>;
     }
     _handleError(r);
@@ -311,9 +312,9 @@ class WishnodeApi {
 
     // debug: show headers being sent
     final headers = _buildHeaders({'Accept': 'application/json', 'Content-Type': 'application/json'});
-    print('[WishnodeApi] generatePlan -> POST $uri');
-    print('[WishnodeApi] headers: $headers');
-    print('[WishnodeApi] body: $body');
+    Log.d('[WishnodeApi] generatePlan -> POST $uri');
+    Log.d('[WishnodeApi] headers: $headers');
+    Log.d('[WishnodeApi] body: $body');
 
     try {
       final resp = await http
@@ -324,8 +325,8 @@ class WishnodeApi {
           )
           .timeout(Duration(seconds: 45));
 
-      print('[WishnodeApi] response status: ${resp.statusCode}');
-      print('[WishnodeApi] response body: ${resp.body}');
+      Log.d('[WishnodeApi] response status: ${resp.statusCode}');
+      Log.d('[WishnodeApi] response body: ${resp.body}');
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         return resp.body;
@@ -344,7 +345,7 @@ class WishnodeApi {
         throw Exception(detail);
       }
     } catch (e) {
-      print('[WishnodeApi] generatePlan ERROR: $e');
+      Log.d('[WishnodeApi] generatePlan ERROR: $e');
       rethrow;
     }
   }
@@ -522,4 +523,209 @@ class WishnodeApi {
     _handleError(r);
     return '';
   }
+
+/// Register a new user with email and password
+
+
+/// Login with email and password
+// Add these methods to your WishnodeApi class in lib/wishnode_api.dart
+
+// -----------------------------
+// Authentication
+// -----------------------------
+
+/// Register a new user with email and password
+/// If anonUserId is provided, claims that anonymous account (preserving wishes)
+/// Otherwise creates a fresh account
+Future<Map<String, dynamic>> register(String email, String password, {String? anonUserId}) async {
+  // If we have an anon user id, use the claim endpoint to preserve wishes
+  if (anonUserId != null && anonUserId.isNotEmpty) {
+    return claimAccount(anonUserId, email, password);
+  }
+  
+  // Otherwise create a fresh account
+  final body = json.encode({
+    'email': email,
+    'password': password,
+  });
+
+  final r = await http.post(
+    Uri.parse('$baseUrl/api/auth/register'),
+    headers: _buildHeaders(),
+    body: body,
+  );
+
+  if (r.statusCode >= 200 && r.statusCode < 300) {
+    final j = json.decode(r.body) as Map<String, dynamic>;
+    Log.d("resp_from_register: ${r.body}");
+    
+    // Set token automatically if returned
+    final token = j['token'] as String?;
+    if (token != null && token.isNotEmpty) {
+      setToken(token);
+    }
+    
+    return j;
+  }
+
+  _handleError(r);
+  return {};
+}
+
+/// Claim an anonymous account - converts anon user to real user, preserving wishes
+Future<Map<String, dynamic>> claimAccount(String anonUserId, String email, String password) async {
+  // Build query parameters for the claim endpoint
+  final uri = Uri.parse('$baseUrl/api/users/claim').replace(queryParameters: {
+    'anon_user_id': anonUserId,
+    'email': email,
+    'password_plain': password,
+  });
+
+  final r = await http.post(
+    uri,
+    headers: _buildHeaders(),
+  );
+
+  if (r.statusCode >= 200 && r.statusCode < 300) {
+    final j = json.decode(r.body) as Map<String, dynamic>;
+    Log.d("resp_from_claimAccount: ${r.body}");
+    
+    // After claiming, we need to login to get a token
+    final newUserId = j['user_id']?.toString();
+    if (newUserId != null && newUserId.isNotEmpty) {
+      // Now login with the new credentials to get a token
+      return login(email, password);
+    }
+    
+    return j;
+  }
+
+  _handleError(r);
+  return {};
+}
+
+/// Login with email and password
+Future<Map<String, dynamic>> login(String email, String password) async {
+  final body = json.encode({
+    'email': email,
+    'password': password,
+  });
+
+  final r = await http.post(
+    Uri.parse('$baseUrl/api/auth/login'),
+    headers: _buildHeaders(),
+    body: body,
+  );
+
+  if (r.statusCode >= 200 && r.statusCode < 300) {
+    final j = json.decode(r.body) as Map<String, dynamic>;
+    Log.d("resp_from_login: ${r.body}");
+    
+    // Set token automatically if returned
+    final token = j['token'] as String?;
+    if (token != null && token.isNotEmpty) {
+      setToken(token);
+    }
+    
+    return j;
+  }
+
+  _handleError(r);
+  return {};
+}
+
+/// Logout - clears server-side cookie
+Future<Map<String, dynamic>> logout() async {
+  final r = await http.post(
+    Uri.parse('$baseUrl/api/auth/logout'),
+    headers: _buildHeaders(),
+  );
+
+  if (r.statusCode >= 200 && r.statusCode < 300) {
+    // Clear local token
+    setToken('');
+    Log.d("resp_from_logout: ${r.body}");
+    return json.decode(r.body) as Map<String, dynamic>;
+  }
+
+  _handleError(r);
+  return {};
+}
+
+/// Get current user profile (requires authentication)
+Future<Map<String, dynamic>> getCurrentUserProfile() async {
+  final r = await http.get(
+    Uri.parse('$baseUrl/api/users/me'),
+    headers: _buildHeaders(),
+  );
+
+  if (r.statusCode >= 200 && r.statusCode < 300) {
+    Log.d("resp_from_getCurrentUserProfile: ${r.body}");
+    return json.decode(r.body) as Map<String, dynamic>;
+  }
+
+  _handleError(r);
+  return {};
+}
+
+/// Admin login (separate from regular login)
+Future<Map<String, dynamic>> adminLogin(String email, String password) async {
+  final body = json.encode({
+    'email': email,
+    'password': password,
+  });
+
+  final r = await http.post(
+    Uri.parse('$baseUrl/api/admin/login'),
+    headers: _buildHeaders(),
+    body: body,
+  );
+
+  if (r.statusCode >= 200 && r.statusCode < 300) {
+    final j = json.decode(r.body) as Map<String, dynamic>;
+    Log.d("resp_from_adminLogin: ${r.body}");
+    
+    // Note: admin login might set cookie but may not return token
+    // Check if token is present and set it
+    final token = j['token'] as String?;
+    if (token != null && token.isNotEmpty) {
+      setToken(token);
+    }
+    
+    return j;
+  }
+
+  _handleError(r);
+  return {};
+}
+
+// -----------------------------
+// Feedback
+// -----------------------------
+
+Future<void> submitFeedback(
+	String text, {
+	String? path,
+	String source = "web",
+}) async {
+	final body = json.encode({
+		'text': text,
+		if (path != null) 'path': path,
+		'source': source,
+	});
+
+	final r = await http.post(
+		Uri.parse('$baseUrl/api/feedback'),
+		headers: _buildHeaders(),
+		body: body,
+	);
+
+	if (r.statusCode >= 200 && r.statusCode < 300) {
+		Log.d('[WishnodeApi] feedback submitted');
+		return;
+	}
+
+	_handleError(r);
+}
+
 }

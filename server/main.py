@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException, Depends, Response, Body
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
-from models import Base, User, Wish, Item, WishStatus, Tier
-from schemas import WishCreate, ItemOut
+from models import Base, Feedback, User, Wish, Item, WishStatus, Tier
+from schemas import FeedbackCreate, WishCreate, ItemOut
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv          
@@ -28,7 +28,7 @@ pwd_context = CryptContext(
 def verify_password(plain: str, hashed: str) -> bool:
 	return pwd_context.verify(plain, hashed)
 
-class AdminLoginBody(BaseModel):
+class LoginBody(BaseModel):
 	email: str
 	password: str
 
@@ -186,18 +186,38 @@ def claim_user(anon_user_id: str, email: str, password_plain: str, db: Session =
     - Creates a new permanent user row with a new id (tier=free).
     - Moves wishes from anon_user_id -> new_id.
     - Deletes the anonymous user row.
-    - If the User model has 'email' and 'password_hash' columns, fill them;
-      otherwise skip them to remain compatible with lightweight schemas.
     """
+    import logging
+    logging.info(f"[claim_user] Attempting to claim anon_user_id={anon_user_id}")
+    
+    # Find user by ID first to see what we're dealing with
+    user_check = db.query(User).filter(User.id == anon_user_id).first()
+    if user_check:
+        logging.info(f"[claim_user] Found user with id={anon_user_id}, tier={user_check.tier}")
+    else:
+        logging.warning(f"[claim_user] No user found with id={anon_user_id}")
+    
     # find anon user by tier
     anon = db.query(User).filter(User.id == anon_user_id, User.tier == Tier.anon).first()
     if not anon:
-        raise HTTPException(status_code=404, detail="Anonymous user not found")
+        # Try without tier check - maybe tier was already changed
+        anon = db.query(User).filter(User.id == anon_user_id).first()
+        if not anon:
+            raise HTTPException(status_code=404, detail="Anonymous user not found")
+        logging.warning(f"[claim_user] User exists but tier is {anon.tier}, not Tier.anon. Proceeding anyway.")
+
+    # Check if email already exists
+    existing_email = db.query(User).filter(User.email == email).first()
+    if existing_email:
+        raise HTTPException(status_code=409, detail="Email already in use")
 
     # create new user id
     new_id = str(uuid4())
-    new_user_kwargs = {"id": new_id, "tier": Tier.free, "created_at": datetime.now(timezone.utc)}
-
+    new_user_kwargs = {
+        "id": new_id, 
+        "tier": Tier.free, 
+        "created_at": datetime.now(timezone.utc)
+    }
 
     # include email if the model defines such a column/attribute
     if hasattr(User, "email"):
@@ -205,31 +225,34 @@ def claim_user(anon_user_id: str, email: str, password_plain: str, db: Session =
 
     user = User(**new_user_kwargs)
 
-    # set password_hash only if hashing util exists and model has the column
+    # set password_hash using pwd_context (already imported at top)
     if hasattr(User, "password_hash"):
-        if "hash_password" in globals() and callable(globals().get("hash_password")):
-            user.password_hash = hash_password(password_plain)
-        else:
-            # If no hashing util, do not set plaintext password — leave blank or handle appropriately.
-            # We avoid storing passwords in plaintext; prefer to fail loudly in prod.
-            # For tests/dev we just skip setting it.
-            pass
+        user.password_hash = pwd_context.hash(password_plain)
 
     db.add(user)
+    
+    # IMPORTANT: Flush to insert the new user BEFORE updating wishes
+    # This ensures the new_id exists in the users table before we point wishes to it
+    db.flush()
 
     # move wishes from anon to new user id
+    wish_count = db.query(Wish).filter(Wish.owner_id == anon_user_id).count()
+    logging.info(f"[claim_user] Moving {wish_count} wishes from {anon_user_id} to {new_id}")
     db.query(Wish).filter(Wish.owner_id == anon_user_id).update({Wish.owner_id: new_id})
 
-    # remove the anon row to avoid duplicate accounts; if you prefer marking converted,
-    # you could set anon.tier = Tier.free instead of deleting.
+    # remove the anon row to avoid duplicate accounts
     try:
         db.delete(anon)
-    except Exception:
+        logging.info(f"[claim_user] Deleted anon user {anon_user_id}")
+    except Exception as e:
+        logging.warning(f"[claim_user] Could not delete anon user: {e}")
         # If deletion is problematic for your schema (FKs), fallback to marking converted:
         if hasattr(anon, "tier"):
-            anon.tier = Tier.free
+            anon.tier = Tier.converted  # or Tier.free
+            logging.info(f"[claim_user] Marked anon user as converted instead")
 
     db.commit()
+    logging.info(f"[claim_user] Successfully claimed account. New user_id={new_id}")
     return {"ok": True, "user_id": new_id}
 
 @app.get("/api/wishes/{wish_id}")
@@ -875,7 +898,7 @@ def edit_task(wish_id: str, task_id: str, payload: TaskEdit, db: Session = Depen
 
 @app.post("/api/admin/login")
 def admin_login(
-	body: AdminLoginBody,
+	body: LoginBody,
 	response: Response,
 	db: Session = Depends(get_db),
 ):
@@ -929,6 +952,112 @@ def attach_email_to_user(
 	}
 
 
+@app.post("/api/auth/register")
+def register(
+    body: LoginBody,  # reuse or create RegisterBody
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Create a new user account with email + password.
+    Returns user info and sets auth token.
+    """
+    email = body.email.strip().lower()
+    
+    # Check if email already exists
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    
+    # Create new user
+    user_id = str(uuid4())
+    user = User(
+        id=user_id,
+        email=email,
+        password_hash=pwd_context.hash(body.password),
+        tier=Tier.free,
+        created_at=datetime.now(timezone.utc)
+    )
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    # Create token and set cookie
+    token = create_token_for_user(user.id)
+    set_auth_cookie(response, token)
+    
+    return {
+        "ok": True,
+        "user_id": user.id,
+        "token": token
+    }
+@app.post("/api/auth/login")
+def login(
+    body: LoginBody,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Login with email + password.
+    Returns user info and sets auth token.
+    """
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not user.password_hash or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    token = create_token_for_user(user.id)
+    set_auth_cookie(response, token)
+    
+    return {
+        "ok": True,
+        "user_id": user.id,
+        "token": token,
+        "tier": user.tier.name if hasattr(user.tier, 'name') else str(user.tier)
+    }
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response):
+    """
+    Clear the auth cookie.
+    """
+    response.delete_cookie(
+        key="auth_token",
+        httponly=True,
+        secure=True,
+        samesite="lax"
+    )
+    return {"ok": True}
+
+@app.get("/api/users/me")
+def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get detailed profile for authenticated user.
+    """
+    wish_count = db.query(Wish).filter(
+        Wish.owner_id == current_user.id,
+        Wish.deleted == False
+    ).count()
+    
+    active_wishes = active_wish_count(db, current_user.id)
+    
+    return {
+        "user_id": current_user.id,
+        "email": getattr(current_user, 'email', None),
+        "tier": current_user.tier.name if hasattr(current_user.tier, 'name') else str(current_user.tier),
+        "created_at": current_user.created_at,
+        "wish_count": wish_count,
+        "active_wishes": active_wishes,
+        "role": getattr(current_user, 'role', None)
+    }
+
 @app.get("/api/admin/metrics")
 def admin_metrics(
 	current_user: User = Depends(get_current_user),
@@ -941,6 +1070,35 @@ def admin_metrics(
 
 	return {
 		"wish_count": wish_count
+	}
+
+@app.post("/api/feedback")
+def submit_feedback(
+	body: FeedbackCreate,
+	request: Request,
+	db: Session = Depends(get_db),
+	current_user: Optional[User] = Depends(get_current_user_optional),
+):
+	text = body.text.strip()
+	if not text:
+		raise HTTPException(status_code=400, detail="Feedback text is required")
+
+	fb = Feedback(
+		user_id=current_user.id if current_user else None,
+		text=text,
+		path=body.path,
+		source=body.source or "web",
+		user_agent=request.headers.get("user-agent"),
+	)
+
+	db.add(fb)
+	db.commit()
+	db.refresh(fb)
+
+	return {
+		"ok": True,
+		"id": fb.id,
+		"created_at": fb.created_at,
 	}
 
 
