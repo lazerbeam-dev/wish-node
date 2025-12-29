@@ -1,11 +1,11 @@
 {
-    "name": "wishnode",
-    "short_name": "wishnode",
+    "name": "Wishnode",
+    "short_name": "Wishnode",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0D1321",
     "theme_color": "#58CC99",
-    "description": "A new Flutter project.",
+    "description": "Make a wish, get a plan, make it happen.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

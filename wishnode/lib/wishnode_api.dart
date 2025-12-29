@@ -181,7 +181,7 @@ class ApiException implements Exception {
 // -------------------------------------------------------------
 
 class WishnodeApi {
-  final String baseUrl = 'http://localhost:8000';//'https://api.wishnode.com';//////;
+  final String baseUrl = 'https://api.wishnode.com';//'http://localhost:8000';////////;
   final Map<String, String> defaultHeaders;
 
   // token (JWT) that will be appended to Authorization header when present
